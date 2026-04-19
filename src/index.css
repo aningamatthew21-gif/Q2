@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* Button pop interaction (opt-in via data-pop) */
+button[data-pop] {
+  transition: transform 120ms ease, box-shadow 120ms ease;
+  transform: translateZ(0);
+}
+button[data-pop]:active {
+  transform: scale(0.96);
+}

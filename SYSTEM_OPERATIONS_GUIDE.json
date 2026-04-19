@@ -1,0 +1,287 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "{{now}}",
+  "overview": {
+    "purpose": "Single‑page quoting and invoicing app with AI assistant, PDF generation, and optional programmatic email sending.",
+    "stack": {
+      "frontend": ["React (Vite)", "Recharts", "jsPDF", "jspdf-autotable"],
+      "infra": ["Firebase Auth", "Cloud Firestore", "Firebase Functions"],
+      "ai": ["Google Generative Language API (Gemini)"]
+    },
+    "coreCapabilities": [
+      "Live inventory and customers from Firestore",
+      "Sales quote builder and invoice preview",
+      "AI Sales Assistant for recommendations and quote edits",
+      "PDF generation for invoices/quotes",
+      "Send email to customer (mailto) and optional Cloud Function with PDF attachment",
+      "Controller report generation (Cloud Function) and CSV export"
+    ]
+  },
+  "frontend": {
+    "entry": "src/main.jsx",
+    "rootComponent": "src/App.jsx",
+    "majorUIAreas": [
+      {
+        "id": "login_screen",
+        "description": "Initial screen; mounts and loads company logo; initializes Firebase; anonymous or token auth.",
+        "keyDebug": ["🔍 [DEBUG] LoginScreen mounted", "✅ [DEBUG] Company logo loaded successfully"]
+      },
+      {
+        "id": "salesperson_quoting_tool",
+        "description": "Primary workspace containing AI chat, manual add, and current quote sections.",
+        "layout": {
+          "grid": "lg:grid-cols-5",
+          "sections": [
+            "AI Chat (lg:span 3)",
+            "Manual Add Items (lg:span 3, below chat)",
+            "Current Quote (lg:span 2)"
+          ]
+        },
+        "components": [
+          {
+            "name": "AI Sales Assistant",
+            "state": ["chatHistory[]", "userInput", "isAiLoading", "chatContainerRef"],
+            "rendering": "Messages displayed; user bubble vs model bubble. Model bubbles rendered via FormattedMessage (Markdown + sanitize).",
+            "actions": [
+              "Send message triggers handleSendMessage",
+              "Regex parses action tags: ADD_TO_QUOTE, REMOVE_FROM_QUOTE, REDUCE_QUOTE_QUANTITY, SUGGEST_PRODUCTS",
+              "Product suggestions appended as 'RECOMMENDED PRODUCTS' list"
+            ]
+          },
+          {
+            "name": "Manual Add Items",
+            "description": "Searchable inventory table to click and add items to quote",
+            "state": ["searchTerm", "addingItem", "stockWarning"]
+          },
+          {
+            "name": "Current Quote",
+            "description": "Displays items, supports quantity edits, removal, and shows totals incl. taxes",
+            "state": ["quoteItems", "selectedCustomer", "taxes", "totals"]
+          }
+        ]
+      },
+      {
+        "id": "invoice_preview_modal",
+        "description": "Preview of invoice with actions to Generate PDF and Send Email",
+        "handlers": ["handleSaveToPdf", "handleSendEmail"],
+        "buttons": ["Generate PDF", "Send Email", "Close"]
+      }
+    ]
+  },
+  "aiSalesAssistant": {
+    "file": "src/App.jsx",
+    "model": "gemini-2.5-flash-preview-05-20",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+    "prompt": {
+      "system": "Large systemPrompt with CORE CAPABILITIES, QUOTE ACTIONS, RECOMMENDATION LOGIC; requests concise Markdown bullets.",
+      "history": "chatHistory (role: user/model, parts[{text}])"
+    },
+    "parsing": {
+      "actions": [
+        "[ACTION:ADD_TO_QUOTE, SKU:..., QUANTITY:..]",
+        "[ACTION:REMOVE_FROM_QUOTE, SKU:...]",
+        "[ACTION:REDUCE_QUOTE_QUANTITY, SKU:..., QUANTITY:..]",
+        "[ACTION:SUGGEST_PRODUCTS, CONTEXT:...]"
+      ],
+      "regex": "Four global regexes handle each action; 'cleanText' removes action tags before display"
+    },
+    "recommendations": {
+      "fn": "generateProductRecommendations(context, currentQuoteItems)",
+      "rules": [
+        "Printers -> ribbons, maintenance kits",
+        "Customers with email and items -> premium items",
+        "Total quantity > 20 -> bulk discount candidates"
+      ],
+      "limit": 5
+    },
+    "rendering": {
+      "markdown": "src/components/FormattedMessage.jsx",
+      "libraries": ["react-markdown", "remark-gfm", "rehype-raw", "rehype-sanitize"],
+      "safety": "sanitization schema allows only safe tags; links rendered with target=_blank and rel=noopener"
+    }
+  },
+  "pdfGeneration": {
+    "service": "src/services/PDFService.js",
+    "libraries": ["jsPDF", "jspdf-autotable"],
+    "publicAPIs": [
+      "generateInvoicePDF(invoiceData) => jsPDF",
+      "generateQuotePDF(quoteData) => jsPDF",
+      "downloadInvoicePDF(invoiceData) => save()",
+      "downloadQuotePDF(quoteData) => save()",
+      "generateInvoicePDFAsBase64(invoiceData) => base64 (for email)",
+      "generateQuotePDFAsBase64(quoteData) => base64"
+    ],
+    "layout": {
+      "page": "A4 portrait, mm units",
+      "sections": [
+        "Header with brand (margins / ID SYSTEMS / APPLICATION LIMITED)",
+        "Customer and invoice/quote details",
+        "Items table (autoTable)",
+        "Totals: taxes applied via calculateTaxes or calculateTaxesFromConfig",
+        "Terms & conditions",
+        "Signature (optional image, falls back to text)",
+        "Footer with contact info and branding"
+      ]
+    },
+    "filenames": {
+      "invoice": "Invoice-{invoiceId}-{CleanCustomerName}-GHC{Total}.pdf",
+      "quote": "Quote-{quoteId}.pdf"
+    },
+    "debug": [
+      "🔍 [DEBUG] PDFService: generateInvoicePDF called",
+      "✍️ [DEBUG] PDFService: Adding controller signature to PDF",
+      "✅ [DEBUG] PDFService: Invoice PDF generated successfully"
+    ]
+  },
+  "email": {
+    "ui": {
+      "file": "src/App.jsx",
+      "flag": "USE_PROGRAMMATIC_EMAIL",
+      "fallback": "mailto: link with composed subject/body",
+      "flow": "When flag on: generate base64 PDF, call EmailService -> Cloud Function; else open default mail client"
+    },
+    "backendFunction": {
+      "file": "functions/index.js",
+      "name": "sendInvoiceEmail (HTTPS)",
+      "provider": "SendGrid via @sendgrid/mail",
+      "config": "functions:config:set sendgrid.key='<KEY>' sendgrid.from_email='noreply@margins-id.com'",
+      "cors": "Enabled via cors({ origin: true })",
+      "request": {
+        "method": "POST",
+        "body": ["to (string)", "invoiceData (object)", "pdfBase64 (string)", "pdfFileName (string)"]
+      },
+      "response": {"success": true, "durationMs": 1234},
+      "limits": {"maxAttachmentMB": 9}
+    },
+    "frontendService": {
+      "file": "src/services/EmailService.js (optional; may be absent)",
+      "endpointEnv": "VITE_SEND_INVOICE_EMAIL_URL",
+      "headers": "Content-Type JSON; optionally Authorization: Bearer {idToken}",
+      "validation": "sanitizes recipient email and warns if endpoint not configured"
+    }
+  },
+  "reports": {
+    "generateFullReport": {
+      "type": "callable",
+      "file": "functions/index.js",
+      "auth": "expects custom claim role in ['controller','sales']",
+      "inputs": ["appId (string)", "role (string)", "startDate (ISO)", "endDate (ISO)", "includeLegacy (bool)"],
+      "output": "summary, aging buckets, payments log, invoice rows, customer reconciliation",
+      "storesCache": "artifacts/{appId}/public/data/reports/{reportId}"
+    },
+    "exportReportCsv": {
+      "type": "https",
+      "file": "functions/index.js",
+      "request": "POST { appId, reportId }",
+      "output": "{ url: signedUrlToCsv }"
+    }
+  },
+  "dataModel": {
+    "firestoreRoot": "artifacts/{appId}/public/data",
+    "collections": {
+      "customers": {
+        "schema": ["id", "name", "contactEmail", "contactPerson", "location", "poBox", "region", "address"]
+      },
+      "inventory": {
+        "schema": ["id", "name", "vendor", "stock", "price", "restockLimit"]
+      },
+      "invoices": {
+        "schema": ["id", "salespersonId", "customerId", "customerName", "date", "dueDate", "lineItems[]", "payments[]", "total", "taxes[]", "status", "isLegacy"],
+        "lineItem": ["id", "name", "quantity", "price"],
+        "payment": ["amount", "date", "docNumber", "paymentMethod"]
+      },
+      "settings": {
+        "schema": ["id", "taxArray[]"],
+        "tax": ["id", "name", "rate", "enabled", "on ('subtotal'|'levyTotal')"]
+      },
+      "reports": {
+        "schema": ["createdAt", "createdBy", "params", "report"]
+      }
+    },
+    "indexes": "See firebase.config.js: requiredIndexes"
+  },
+  "performance": {
+    "pagination": {"ITEMS_PER_PAGE": 20},
+    "cache": {"durationMs": 300000},
+    "search": {"debounceMs": 300},
+    "realtime": {"enabled": true}
+  },
+  "envConfig": {
+    "vite": ["VITE_SEND_INVOICE_EMAIL_URL (Cloud Function URL)"],
+    "functions": ["sendgrid.key", "sendgrid.from_email"],
+    "firebase": "firebase.config.js placeholder values should be replaced with real config"
+  },
+  "security": {
+    "auth": "App uses Firebase Auth (anonymous/custom token). Callable functions expect role claims for protected operations.",
+    "functions": "HTTPS functions use CORS and input validation; optional ID token header is supported on client.",
+    "emailPrivacy": "Do not log full email bodies or PII; logs include invoiceId and recipient mask."
+  },
+  "flows": {
+    "createQuoteAndSend": [
+      "User opens Quoting Tool",
+      "Selects customer and adds items (AI or manual)",
+      "Preview invoice modal",
+      "Generate PDF (jsPDF)",
+      "Send Email: programmatic path -> base64 PDF -> Cloud Function -> SendGrid",
+      "Fallback: mailto with composed body"
+    ],
+    "aiAssist": [
+      "User types request",
+      "handleSendMessage builds systemPrompt + history",
+      "Call Gemini API",
+      "Parse action tags and mutate quote",
+      "Append cleaned Markdown reply via FormattedMessage"
+    ],
+    "reporting": [
+      "Client invokes callable generateFullReport with filters",
+      "Function aggregates invoices and payments",
+      "Result displayed; CSV export via HTTP endpoint"
+    ]
+  },
+  "logging": {
+    "frontend": [
+      "📧 [DEBUG] EmailService: Sending invoice email request",
+      "✅ [DEBUG] PDFService: Invoice PDF generated successfully",
+      "❌ [ERROR] App: Failed to send email with PDF"
+    ],
+    "backend": [
+      "sendInvoiceEmail: sent { invoiceId, to, durationMs, sizeKB }",
+      "exportReportCsv error: <message>",
+      "Invoice fetch error: <message>"
+    ]
+  },
+  "troubleshooting": {
+    "corsFailed": {
+      "symptom": "Failed to fetch / No 'Access-Control-Allow-Origin'",
+      "fix": [
+        "Deploy sendInvoiceEmail and set VITE_SEND_INVOICE_EMAIL_URL to the real URL",
+        "Restart Vite so env is picked up",
+        "For emulator, use http://127.0.0.1:5001/<project>/us-central1/sendInvoiceEmail"
+      ]
+    },
+    "invalidEmail": {
+      "symptom": "Client throws 'Invalid recipient email address'",
+      "fix": "Ensure a proper email; remove trailing markers like ' -1'"
+    },
+    "bigPdf": {
+      "symptom": "Function responds 413 Attachment too large",
+      "fix": "Reduce invoice size (images, rows) or split quote"
+    }
+  },
+  "runbook": {
+    "dev": [
+      "npm install",
+      "npm run dev",
+      "firebase emulators:start --only functions (optional)"
+    ],
+    "deploy": [
+      "cd functions && npm install",
+      "firebase functions:config:set sendgrid.key='<KEY>' sendgrid.from_email='noreply@margins-id.com'",
+      "firebase deploy --only functions",
+      "Set VITE_SEND_INVOICE_EMAIL_URL to deployed URL and rebuild"
+    ]
+  }
+}
+
+
+

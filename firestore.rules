@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper to check if user is the owner of the document (for user profiles)
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users collection: Users can read and write their own profile
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Artifacts (App Data): Authenticated users can read/write app data
+    // This includes invoices, customers, settings, targets, etc.
+    // In a more complex app, we would check for specific roles (controller vs sales)
+    match /artifacts/{appId}/public/data/{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Allow access to the specific targets collection for the year
+    match /artifacts/{appId}/public/data/targets/{year} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Default deny for all other documents
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,313 @@
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -4114,9 +4114,6 @@
+     const [userInput, setUserInput] = useState('');
+     const [isAiLoading, setIsAiLoading] = useState(false);
+     const chatContainerRef = useRef(null);
+-
+-    // --- AI Gemini API Key (move to module scope to avoid redeclaration) ---
+-    const apiKey = "AIzaSyDSTOJuXixi0GrOyP0TPmasf7l2ku6I26c";
+ 
+     const handleSendMessage = async () => {
+         if (!userInput.trim()) return;
+@@ -4125,65 +4122,49 @@
+         const userMessage = userInput.trim();
+         setUserInput('');
+         
+-        // Add user message to chat history
+-        const newHistory = [...chatHistory, { role: 'user', parts: [{ text: userMessage }] }];
+-        setChatHistory(newHistory);
++        // Add user message to chat history
++        const newHistory = [...chatHistory, { role: 'user', parts: [{ text: userMessage }] }];
++        setChatHistory(newHistory);
+         
+         try {
+-            // Build context data
+-            const inventoryContext = inventory.map(item => 
+-                `${item.name} (SKU: ${item.id}) - ${formatCurrency(getItemPrice(item))} (Stock: ${item.stock})`
+-            ).join('\n');
+-            
+-            const customerContext = customers.map(customer => 
+-                `${customer.name} (${customer.email || 'No email'}) - ${customer.company || 'No company'}`
+-            ).join('\n');
+-            
+-            const quoteContext = quoteItems.map(item => 
+-                `${item.name} x${item.quantity} - ${formatCurrency(getItemPrice(item))} each`
+-            ).join('\n');
+-            
+-            // Build system prompt with context
+-            const systemPrompt = `
+-You are an intelligent, data-driven sales assistant for Margins ID Systems with advanced product recommendation and pricing capabilities.
+-
+-CORE CAPABILITIES:
+-1. INTELLIGENT PRODUCT RECOMMENDATIONS:
+-   - Analyze customer history and suggest products frequently bought together
+-   - Recommend complementary items based on what's already in the quote
+-   - Consider customer's industry and typical needs when suggesting products
+-   - Suggest upgrades or alternatives when stock is low
+-
+-2. DYNAMIC PRICING STRATEGY:
+-   - Consider customer's order volume and payment history
+-   - Suggest volume discounts for larger orders
+-   - Recommend competitive pricing based on customer type
+-   - Factor in current stock levels (higher prices when stock is low)
+-
+-3. CUSTOMER INSIGHTS:
+-   - Reference customer's purchase history and preferences
+-   - Consider their contact information and communication preferences
+-   - Suggest products based on their industry and typical needs
+-
+-Use the inventory and customer data below to answer questions as naturally as possible.
+-If you don't know something from the data, say "I don't know".
+-If the user asks about products, reference the inventory list and suggest related items.
+-If the user asks about a customer, reference the customer list and their history.
+-
+-QUOTE ACTIONS:
+-If the user asks to add an item to the quote, respond with the following action tag (in addition to your message):
+-[ACTION:ADD_TO_QUOTE, SKU:ITEM_SKU, QUANTITY:NUMBER]
+-Replace ITEM_SKU with the product's SKU and NUMBER with the quantity requested.
+-
+-If the user asks to remove an item from the quote, respond with the following action tag (in addition to your message):
+-[ACTION:REMOVE_FROM_QUOTE, SKU:ITEM_SKU]
+-Replace ITEM_SKU with the product's SKU.
+-
+-If the user asks to reduce the quantity of an item in the quote, respond with the following action tag (in addition to your message):
+-[ACTION:REDUCE_QUOTE_QUANTITY, SKU:ITEM_SKU, QUANTITY:NUMBER]
+-Replace ITEM_SKU with the product's SKU and NUMBER with the quantity to reduce.
+-
+-If the user asks for product recommendations or pricing suggestions, respond with the following action tag (in addition to your message):
+-[ACTION:SUGGEST_PRODUCTS, CONTEXT:USER_REQUEST]
+-Replace USER_REQUEST with the specific recommendation context (e.g., "compatible ribbons for printer", "bulk discount for 50 units").
+-
+-RECOMMENDATION LOGIC:
+-- For printers: Suggest compatible ribbons, maintenance kits, and extended warranties
+-- For customers with email: Recommend premium products and bulk discounts
+-- For new customers: Suggest starter packages and basic products
+-- For repeat customers: Reference their previous purchases for recommendations
+-
+-Never ask the user to provide the inventory or customer data—they are included below.
+-
+-Inventory:
+-${inventoryContext}
+-
+-Customers:
+-${customerContext}
+-
+-Current Quote:
+-${quoteContext}
+-`;
+-            
+-            // Build full history with system prompt
+-            const fullHistory = [
+-                { role: 'user', parts: [{ text: systemPrompt }] },
+-                ...newHistory
+-            ];
+-            
+-            // Call Gemini API
++            // Build context data
++            const inventoryContext = inventory.map(item => 
++                `${item.name} (SKU: ${item.id}) - ${formatCurrency(getItemPrice(item))} (Stock: ${item.stock})`
++            ).join('\n');
++            
++            const customerContext = customers.map(customer => 
++                `${customer.name} (${customer.email || 'No email'}) - ${customer.company || 'No company'}`
++            ).join('\n');
++            
++            const quoteContext = quoteItems.map(item => 
++                `${item.name} x${item.quantity} - ${formatCurrency(getItemPrice(item))} each`
++            ).join('\n');
++            
++            // Call the AI proxy server
++            const response = await fetch('http://localhost:3001/api/ai/generate', {
++                method: 'POST',
++                headers: { 'Content-Type': 'application/json' },
++                body: JSON.stringify({
++                    message: userMessage,
++                    context: {
++                        inventory: inventoryContext,
++                        customers: customerContext,
++                        quote: quoteContext
++                    },
++                    history: newHistory
++                })
++            });
++            
++            if (!response.ok) {
++                throw new Error(`AI service error: ${response.status}`);
++            }
++            
++            const data = await response.json();
++            
++            if (!data.success) {
++                throw new Error(data.error || 'AI service failed');
++            }
++            
++            // Process actions from the response
++            const { actions, response: modelResponseText } = data;
++            
++            // Execute actions
++            actions.forEach(action => {
++                switch (action.type) {
++                    case 'ADD_TO_QUOTE':
++                        const itemToAdd = inventory.find(i => i.id === action.sku);
++                        if (itemToAdd) {
++                            handleConfirmAddItem(itemToAdd, action.quantity);
++                        }
++                        break;
++                        
++                    case 'REMOVE_FROM_QUOTE':
++                        const itemToRemove = quoteItems.find(i => i.id === action.sku);
++                        if (itemToRemove) {
++                            handleRequestRemoveItem(itemToRemove);
++                        }
++                        break;
++                        
++                    case 'REDUCE_QUOTE_QUANTITY':
++                        const itemToUpdate = quoteItems.find(i => i.id === action.sku);
++                        if (itemToUpdate) {
++                            const newQty = itemToUpdate.quantity - action.quantity;
++                            if (newQty > 0) {
++                                setQuoteItems(currentItems => 
++                                    currentItems.map(i => i.id === action.sku ? { ...i, quantity: newQty } : i)
++                                );
++                            } else {
++                                handleRequestRemoveItem(itemToUpdate);
++                            }
++                        }
++                        break;
++                        
++                    case 'SUGGEST_PRODUCTS':
++                        const recommendations = generateProductRecommendations(action.context, quoteItems);
++                        if (recommendations.length > 0) {
++                            const recommendationText = `\n\nRECOMMENDED PRODUCTS:\n${recommendations.map(item => 
++                                `• ${item.name} - ${formatCurrency(getItemPrice(item))} (Stock: ${item.stock})`
++                            ).join('\n')}`;
++                            modelResponseText += recommendationText;
++                        }
++                        break;
++                }
++            });
++            
++            const normalized = normalizeAssistantText(modelResponseText.trim());
++            setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: normalized }] }]);
++            
++        } catch (error) {
++            console.error('AI Error:', error);
++            setChatHistory(prev => [...prev, { 
++                role: 'model', 
++                parts: [{ text: 'Sorry, I encountered an error. Please try again.' }] 
++            }]);
++        } finally {
++            setIsAiLoading(false);
++        }
++    };
++
++    const handleSendMessageOld = async () => {
++        if (!userInput.trim()) return;
++        
++        setIsAiLoading(true);
++        const userMessage = userInput.trim();
++        setUserInput('');
++        
++        // Add user message to chat history
++        const newHistory = [...chatHistory, { role: 'user', parts: [{ text: userMessage }] }];
++        setChatHistory(newHistory);
++        
++        try {
++            // Build context data
++            const inventoryContext = inventory.map(item => 
++                `${item.name} (SKU: ${item.id}) - ${formatCurrency(getItemPrice(item))} (Stock: ${item.stock})`
++            ).join('\n');
++            
++            const customerContext = customers.map(customer => 
++                `${customer.name} (${customer.email || 'No email'}) - ${customer.company || 'No company'}`
++            ).join('\n');
++            
++            const quoteContext = quoteItems.map(item => 
++                `${item.name} x${item.quantity} - ${formatCurrency(getItemPrice(item))} each`
++            ).join('\n');
++            
++            // Build system prompt with context
++            const systemPrompt = `
++You are an intelligent, data-driven sales assistant for Margins ID Systems with advanced product recommendation and pricing capabilities.
++
++CORE CAPABILITIES:
++1. INTELLIGENT PRODUCT RECOMMENDATIONS:
++   - Analyze customer history and suggest products frequently bought together
++   - Recommend complementary items based on what's already in the quote
++   - Consider customer's industry and typical needs when suggesting products
++   - Suggest upgrades or alternatives when stock is low
++
++2. DYNAMIC PRICING STRATEGY:
++   - Consider customer's order volume and payment history
++   - Suggest volume discounts for larger orders
++   - Recommend competitive pricing based on customer type
++   - Factor in current stock levels (higher prices when stock is low)
++
++3. CUSTOMER INSIGHTS:
++   - Reference customer's purchase history and preferences
++   - Consider their contact information and communication preferences
++   - Suggest products based on their industry and typical needs
++
++Use the inventory and customer data below to answer questions as naturally as possible.
++If you don't know something from the data, say "I don't know".
++If the user asks about products, reference the inventory list and suggest related items.
++If the user asks about a customer, reference the customer list and their history.
++
++QUOTE ACTIONS:
++If the user asks to add an item to the quote, respond with the following action tag (in addition to your message):
++[ACTION:ADD_TO_QUOTE, SKU:ITEM_SKU, QUANTITY:NUMBER]
++Replace ITEM_SKU with the product's SKU and NUMBER with the quantity requested.
++
++If the user asks to remove an item from the quote, respond with the following action tag (in addition to your message):
++[ACTION:REMOVE_FROM_QUOTE, SKU:ITEM_SKU]
++Replace ITEM_SKU with the product's SKU.
++
++If the user asks to reduce the quantity of an item in the quote, respond with the following action tag (in addition to your message):
++[ACTION:REDUCE_QUOTE_QUANTITY, SKU:ITEM_SKU, QUANTITY:NUMBER]
++Replace ITEM_SKU with the product's SKU and NUMBER with the quantity to reduce.
++
++If the user asks for product recommendations or pricing suggestions, respond with the following action tag (in addition to your message):
++[ACTION:SUGGEST_PRODUCTS, CONTEXT:USER_REQUEST]
++Replace USER_REQUEST with the specific recommendation context (e.g., "compatible ribbons for printer", "bulk discount for 50 units").
++
++RECOMMENDATION LOGIC:
++- For printers: Suggest compatible ribbons, maintenance kits, and extended warranties
++- For customers with email: Recommend premium products and bulk discounts
++- For new customers: Suggest starter packages and basic products
++- For repeat customers: Reference their previous purchases for recommendations
++
++Never ask the user to provide the inventory or customer data—they are included below.
++
++Inventory:
++${inventoryContext}
++
++Customers:
++${customerContext}
++
++Current Quote:
++${quoteContext}
++`;
++            
++            // Build full history with system prompt
++            const fullHistory = [
++                { role: 'user', parts: [{ text: systemPrompt }] },
++                ...newHistory
++            ];
++            
++            // Call Gemini API (DEPRECATED - kept for rollback)
+             const payload = { contents: fullHistory };
+-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
++            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=AIzaSyDSTOJuXixi0GrOyP0TPmasf7l2ku6I26c`;
+             const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+             if (!response.ok) throw new Error(`API call failed with status: ${response.status}`);
+             const data = await response.json();
+@@ -4191,7 +4172,7 @@
+             let cleanText = modelResponseText;
+             // Handle add actions
+             while((match = addActionRegex.exec(modelResponseText)) !== null) {
+-                const sku = match[1].trim();
++                const sku = match[1].trim();
+                 const quantity = parseInt(match[2], 10);
+                 const itemToAdd = inventory.find(i => i.id === sku);
+                 if(itemToAdd) { handleConfirmAddItem(itemToAdd, quantity); }

@@ -1,0 +1,74 @@
+2. System Flow Chart
+Plaintext
+
++----------------------+           +----------------------+
+|   CONTROLLER SIDE    |           |      SALES SIDE      |
++----------------------+           +----------------------+
+           |                                  |
+ [ Configure Settings ]                   [ Login ]
+ (Taxes, FX Rates, Inv)                       |
+           |                                  v
+ [ Set Item Pricing ] ---------------> [ Create Quote ]
+ (Base Cost + Markup)                         |
+           |                                  |
+           |                        /---------+---------\
+           |                       /                     \
+           |             [ Add Standard Item ]    [ Add Custom Item ]
+           |             (Auto-Calc Price)        (Price = 0.00)
+           |                       |                     |
+           |                       v                     v
+           |             [ Submit for Approval ]  [ Submit for Pricing ]
+           |                       |                     |
+           |<----------------------+                     |
+           |                                             |
+           v                                             |
+  [ Review Invoice ] <-----------------------------------+
+           |
+           +-------------------------------------+
+           |                                     |
+   [ Item in Stock? ] --(No)--> [ Controller Inputs Price ]
+           |                                     |
+         (Yes)                                   |
+           v                                     v
+ [ Attach Signature ] <--------------------------+
+           |
+           v
+   [ Approve Invoice ]
+           |
+           |------------------------------------>+
+                                                 |
+                                                 v
+                                       [ Ready to Send ]
+                                                 |
+                                                 v
+                                       [ Email Customer ]
+                                                 |
+                                                 v
+                                      /----------+----------\
+                                     /                       \
+                           (Customer Accepts)        (Customer Rejects)
+                                     |                       |
+                                     v                       v
+                           [ Realized Revenue ]      [ Mark Rejected ]
+                                     |               (Revise & Resend)
+                                     v
+                           [ Dashboard Update ]
+
+3. List of Identified Issues and Errors
+The following bugs, UI flaws, and logical errors were documented during the demonstration:
+
+Critical Functionality Bugs:
+
+** Currency Consistency Error: When a quote is submitted in USD, the approval screen often retains the GHS currency code (or vice versa) while displaying the numeric value of the other currency, causing financial discrepancies.
+
+** Custom Item Description Loss: When a salesperson adds a description for a custom item (e.g., "6 feet teddy bear"), this text is not visible to the Controller during the pricing stage, making it impossible for them to know what to price.
+
+Approval Status Sync Lag: After clicking "Approve," the button changes to "Approved," but the invoice remains in the "Pending Approval" list view until the user navigates away and returns. The UI does not update the list state immediately.
+
+Upload Signature Broken: On the Controller side, the "Choose File" button for uploading a signature is unresponsive or missing functionality.
+
+Security & Permissions Issues: 5. Global Signature Access: In the approval dropdown, a user can see and select any other user's signature (e.g., Gabriel, Deb, Cindy) rather than being restricted to their own. This is a major security flaw.
+
+User Interface (UI) & UX Issues: 6. "Tacky" PDF Preview: The invoice preview window is described as overcrowded, specifically regarding the spacing around the signature and footer areas. 7. Company Data Page Failure: The "Company Data" settings page (for editing letterhead details) fails to load entirely, hanging indefinitely. 8. Incorrect Document Status in Preview: In the Controller dashboard, viewing a customer portal sometimes displays an "Unapproved" document stamp even if the status context suggests otherwise. 9. Revenue Targets Page Latency: The Revenue Targets page is noted to take an exceptionally long time to load.
+
+Missing Logic/Features: 10. Rejection Reason Visibility: When a Controller rejects an invoice and types a reason (e.g., "Price too high"), this reason is not visible on the Sales UI, leaving the salesperson unsure why it was rejected.
