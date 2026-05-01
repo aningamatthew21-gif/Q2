@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis } from 'recharts';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import ReportModal from '../components/ReportModal';
 import { formatCurrency } from '../utils/formatting';
 import { useRealtimeInvoices } from '../hooks/useRealtimeInvoices';
@@ -66,17 +68,20 @@ const SalesAnalyticsDashboard = ({ navigateTo, userId, userEmail }) => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-800">Sales Dashboard</h1>
-                    <div className="flex items-center space-x-4">
-                        <button onClick={() => setOpenReport(true)} className="py-2 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"><Icon id="chart-bar" className="mr-2" />Generate Sales Report</button>
-                        <button onClick={handleRefresh} className="text-sm text-gray-600 hover:text-blue-600 disabled:opacity-50" disabled={isLoading}><Icon id={isLoading ? "sync-alt fa-spin" : "sync-alt"} className="mr-1" />{isLoading ? 'Refreshing...' : 'Refresh'}</button>
-                        <div className="flex items-center space-x-2 px-3 py-1 bg-gray-100 rounded-full border border-gray-200 min-w-0 max-w-[260px]"><div className="bg-gray-300 rounded-full p-1 flex-shrink-0"><Icon id="user" className="text-gray-600 w-4 h-4" /></div><span className="text-sm font-medium text-gray-700 truncate" title={userEmail || username}>{username}</span></div>
-                        <button onClick={() => navigateTo('login')} className="text-sm text-gray-600 hover:text-blue-600"><Icon id="sign-out-alt" className="mr-1" /> Logout</button>
-                    </div>
-                </header>
+        <>
+            <PageHeader
+                title="Sales Dashboard"
+                actions={
+                    <>
+                        <Button variant="primary" size="sm" onClick={() => setOpenReport(true)} leftIcon={<Icon id="chart-bar" />}>
+                            Generate Sales Report
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={isLoading} leftIcon={<Icon id={isLoading ? "sync-alt fa-spin" : "sync-alt"} />}>
+                            {isLoading ? 'Refreshing...' : 'Refresh'}
+                        </Button>
+                    </>
+                }
+            />
 
                 {/*
                   Four-tile action grid.
@@ -132,9 +137,8 @@ const SalesAnalyticsDashboard = ({ navigateTo, userId, userEmail }) => {
                         )}
                     </div>
                 </div>
-            </div>
             {openReport && (<ReportModal role="sales" onClose={() => setOpenReport(false)} />)}
-        </div>
+        </>
     );
 };
 export default SalesAnalyticsDashboard;

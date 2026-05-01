@@ -1,78 +1,63 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
+import GlassModal from '../common/GlassModal';
+import Button from '../common/Button';
 
 /**
- * L5 — Confirmation modal with keyboard handling and focus trap.
- *  - Escape key -> onCancel
- *  - Enter key  -> onConfirm (when the confirm button is focused or no other button is)
- *  - Tab / Shift+Tab cycle between Cancel and Confirm only
- *  - Initial focus lands on the confirm button so keyboard users can Enter through.
+ * L5 — Confirmation modal.
+ *
+ * Phase B of the UI restyle moves all modals onto GlassModal so they
+ * share the Apple liquid-glass language. The keyboard/focus/scroll-lock
+ * behavior that used to live inline here is now provided by GlassModal,
+ * so this file is just a thin shell over it.
+ *
+ * Prop contract is identical to the pre-migration version — every
+ * existing call site (CustomerManagement, VendorManagement,
+ * InvoiceEditor, InventoryManagement, PurchaseRequisitionDetail,
+ * RFQDetail, QuotingModule) keeps working without changes.
+ *
+ *   - confirmColor is kept for backward compat. If it contains "red"
+ *     we render the confirm button with Button variant="danger";
+ *     otherwise variant="primary". The className is also forwarded so
+ *     callers that pass custom tone classes still get them.
  */
-const ConfirmationModal = ({ onConfirm, onCancel, title, message, confirmText, confirmColor }) => {
-    const cancelRef = useRef(null);
+const ConfirmationModal = ({
+    onConfirm,
+    onCancel,
+    title,
+    message,
+    confirmText,
+    confirmColor = ''
+}) => {
     const confirmRef = useRef(null);
-    const previouslyFocusedRef = useRef(null);
 
-    useEffect(() => {
-        // Remember who had focus so we can restore it when the modal closes
-        previouslyFocusedRef.current = typeof document !== 'undefined' ? document.activeElement : null;
-        // Initial focus on confirm
-        confirmRef.current?.focus();
+    // Map the legacy confirmColor className to a Button variant.
+    const variant = /red/i.test(confirmColor) ? 'danger' : 'primary';
 
-        const handleKey = (e) => {
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                onCancel?.();
-                return;
-            }
-            if (e.key === 'Tab') {
-                const focusable = [cancelRef.current, confirmRef.current].filter(Boolean);
-                if (focusable.length === 0) return;
-                const first = focusable[0];
-                const last = focusable[focusable.length - 1];
-                if (e.shiftKey && document.activeElement === first) {
-                    e.preventDefault();
-                    last.focus();
-                } else if (!e.shiftKey && document.activeElement === last) {
-                    e.preventDefault();
-                    first.focus();
-                }
-            }
-        };
-        document.addEventListener('keydown', handleKey);
-        return () => {
-            document.removeEventListener('keydown', handleKey);
-            // Restore focus to whatever opened the modal
-            if (previouslyFocusedRef.current && typeof previouslyFocusedRef.current.focus === 'function') {
-                try { previouslyFocusedRef.current.focus(); } catch { /* ignore */ }
-            }
-        };
-    }, [onCancel]);
+    const footer = (
+        <>
+            <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+            <Button
+                ref={confirmRef}
+                variant={variant}
+                onClick={onConfirm}
+            >
+                {confirmText}
+            </Button>
+        </>
+    );
 
     return (
-        <div
-            className="fixed inset-0 bg-white-50 bg-opacity-50 flex justify-center items-center z-50"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="confirm-modal-title"
-            aria-describedby="confirm-modal-message"
+        <GlassModal
+            open
+            onClose={onCancel}
+            title={title}
+            size="sm"
+            footer={footer}
+            initialFocusRef={confirmRef}
+            hideCloseButton
         >
-            <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
-                <h2 id="confirm-modal-title" className="text-xl font-semibold text-gray-800 mb-4">{title}</h2>
-                <p id="confirm-modal-message" className="text-gray-600 mb-6">{message}</p>
-                <div className="flex justify-end space-x-4">
-                    <button
-                        ref={cancelRef}
-                        onClick={onCancel}
-                        className="py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400"
-                    >Cancel</button>
-                    <button
-                        ref={confirmRef}
-                        onClick={onConfirm}
-                        className={`py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-red-500 ${confirmColor}`}
-                    >{confirmText}</button>
-                </div>
-            </div>
-        </div>
+            <p className="text-ink-muted">{message}</p>
+        </GlassModal>
     );
 };
 

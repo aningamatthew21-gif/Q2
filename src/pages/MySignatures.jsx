@@ -1,5 +1,7 @@
 import React from 'react';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import SignaturesSettings from '../components/settings/SignaturesSettings';
 
 /**
@@ -21,31 +23,22 @@ const MySignatures = ({ navigateTo, userId, userEmail, currentUser }) => {
         : 'salesDashboard';
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-5xl mx-auto p-4 md:p-8">
-                <header className="bg-white p-4 rounded-xl shadow-md mb-6 flex justify-between items-center">
-                    <div>
-                        <button
-                            onClick={() => navigateTo(backTarget)}
-                            className="text-sm text-gray-600 hover:text-blue-600 mb-2"
-                        >
-                            <Icon id="arrow-left" className="mr-1" /> Back
-                        </button>
-                        <h1 className="text-2xl font-bold text-gray-800">My Signatures</h1>
-                        <p className="text-sm text-gray-500 mt-1">
-                            Capture or upload your approval signature. Only you can see and use your own signatures.
-                        </p>
-                    </div>
-                    <div className="text-sm text-gray-600">
-                        {userEmail}
-                    </div>
-                </header>
+        <>
+            <PageHeader
+                title="My Signatures"
+                subtitle="Capture or upload your approval signature. Only you can see and use your own signatures."
+                back={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo(backTarget)} leftIcon={<Icon id="arrow-left" />}>
+                        Back
+                    </Button>
+                }
+                actions={<div className="text-sm text-ink-muted">{userEmail}</div>}
+            />
 
-                <div className="bg-white rounded-xl shadow-md p-6">
-                    <SignaturesSettings userId={userId} />
-                </div>
+            <div className="bg-surface rounded-panel shadow-card border border-line p-6">
+                <SignaturesSettings userId={userId} />
             </div>
-        </div>
+        </>
     );
 };
 

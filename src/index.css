@@ -1,10 +1,151 @@
 @import "tailwindcss";
 
-/* Button pop interaction (opt-in via data-pop) */
+/*
+ * MIDSA design tokens
+ * ──────────────────────────────────────────────────────────────
+ * Tailwind v4 consumes `@theme` custom properties and exposes them
+ * as utility classes automatically. For example:
+ *   --color-primary        -> `bg-primary`, `text-primary`, `ring-primary`
+ *   --color-primary-hover  -> `bg-primary-hover`
+ *   --shadow-card          -> `shadow-card`
+ *   --radius-card          -> `rounded-card`
+ *   --blur-glass           -> `backdrop-blur-glass`
+ *   --font-sans            -> `font-sans`  (the default sans stack)
+ *
+ * Palette: Enterprise Neutral. One accent (navy `primary`), muted
+ * status colors, slate surfaces. "Glass" tokens drive the Apple-style
+ * sidebar and modal translucency.
+ */
+@theme {
+  /* Surfaces */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-sunken: #f1f5f9;
+
+  /* Text / ink */
+  --color-ink: #0f172a;
+  --color-ink-muted: #64748b;
+  --color-ink-subtle: #94a3b8;
+
+  /* Borders / hairlines */
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+
+  /* Primary accent (navy) */
+  --color-primary: #1e3a5f;
+  --color-primary-hover: #15304d;
+  --color-primary-soft: #eef2f7;
+
+  /* Status */
+  --color-success: #047857;
+  --color-success-soft: #ecfdf5;
+  --color-warning: #b45309;
+  --color-warning-soft: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-soft: #fef2f2;
+  --color-info: #0369a1;
+  --color-info-soft: #f0f9ff;
+
+  /* Glass (translucent) — sidebar + modals */
+  --color-glass: rgba(255, 255, 255, 0.65);
+  --color-glass-strong: rgba(255, 255, 255, 0.78);
+  --color-glass-tint: rgba(248, 250, 252, 0.55);
+
+  /* Radii */
+  --radius-card: 0.75rem;
+  --radius-panel: 1rem;
+  --radius-pill: 9999px;
+  --radius-glass: 1.25rem;
+
+  /* Shadows — depth via blur + inset highlight (macOS-popover feel) */
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-glass: 0 8px 32px rgba(15, 23, 42, 0.08),
+                  inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --shadow-rail: 1px 0 0 rgba(15, 23, 42, 0.06);
+
+  /* Backdrop blur (Apple-style) */
+  --blur-glass: 20px;
+
+  /* Typography: Inter on Windows, SF Pro on Apple — identical feel. */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display",
+               "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Dark mode — activated by toggling a `dark` class on <html>
+ * (wired through UIPreferencesContext). We override the @theme
+ * custom properties so every token-based utility (`bg-surface`,
+ * `text-ink`, `border-line`, etc.) automatically flips. No per-
+ * component class changes required.
+ * ────────────────────────────────────────────────────────────── */
+html.dark {
+  /* Surfaces — deep slate, not pure black, to keep the glass
+     highlights readable. */
+  --color-surface: #1e293b;
+  --color-surface-muted: #0f172a;
+  --color-surface-sunken: #111a2e;
+
+  /* Text — near-white, softened. */
+  --color-ink: #f1f5f9;
+  --color-ink-muted: #94a3b8;
+  --color-ink-subtle: #64748b;
+
+  /* Borders darken but stay visible. */
+  --color-line: #334155;
+  --color-line-strong: #475569;
+
+  /* Primary shifts slightly brighter so the navy stays visible
+     against the dark canvas. */
+  --color-primary: #60a5fa;
+  --color-primary-hover: #3b82f6;
+  --color-primary-soft: rgba(96, 165, 250, 0.15);
+
+  /* Status — soft variants become translucent tints so badges
+     still read at a glance. */
+  --color-success-soft: rgba(16, 185, 129, 0.15);
+  --color-warning-soft: rgba(245, 158, 11, 0.15);
+  --color-danger-soft:  rgba(239, 68, 68, 0.15);
+  --color-info-soft:    rgba(56, 189, 248, 0.15);
+
+  /* Glass — darker translucent tint. */
+  --color-glass:        rgba(30, 41, 59, 0.65);
+  --color-glass-strong: rgba(30, 41, 59, 0.85);
+  --color-glass-tint:   rgba(15, 23, 42, 0.55);
+
+  /* Shadows — stronger, since drop shadow over dark is almost
+     invisible otherwise. */
+  --shadow-card:  0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.5),
+                  inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+html.dark body {
+  background-color: var(--color-surface-muted);
+  color: var(--color-ink);
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Legacy button-pop interaction (opt-in via `data-pop`). Kept for
+ * backward-compat until the shared <Button> primitive replaces all
+ * ad-hoc buttons. At that point this rule will be removed.
+ * ────────────────────────────────────────────────────────────── */
 button[data-pop] {
   transition: transform 120ms ease, box-shadow 120ms ease;
   transform: translateZ(0);
 }
 button[data-pop]:active {
   transform: scale(0.96);
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Respect user motion preferences. GlassSurface's breathing and
+ * sheen animations opt out when this is set.
+ * ────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
 import { useRealtimePRs } from '../hooks/useRealtimePRs';
 import { useRealtimeVendors } from '../hooks/useRealtimeVendors';
 import { useRealtimeRFQs } from '../hooks/useRealtimeRFQs';
@@ -47,23 +48,8 @@ const ProcurementDashboard = ({ navigateTo, userEmail, currentUser }) => {
     );
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-800">Procurement Dashboard</h1>
-                    <div className="flex items-center space-x-4 min-w-0">
-                        <div className="flex items-center space-x-2 px-3 py-1 bg-gray-100 rounded-full border border-gray-200 min-w-0 max-w-[260px]">
-                            <div className="bg-gray-300 rounded-full p-1 flex-shrink-0">
-                                <Icon id="user" className="text-gray-600 w-4 h-4" />
-                            </div>
-                            <span className="text-sm font-medium text-gray-700 truncate" title={userEmail || username}>{username}</span>
-                            <span className="text-xs text-gray-500 flex-shrink-0">({currentUser?.role || 'procurement'})</span>
-                        </div>
-                        <button onClick={() => navigateTo('login')} className="text-sm text-gray-600 hover:text-blue-600">
-                            <Icon id="sign-out-alt" className="mr-1" /> Logout
-                        </button>
-                    </div>
-                </header>
+        <>
+            <PageHeader title="Procurement Dashboard" />
 
                 {/* Stat cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
@@ -208,8 +194,7 @@ const ProcurementDashboard = ({ navigateTo, userEmail, currentUser }) => {
                         </table>
                     )}
                 </div>
-            </div>
-        </div>
+        </>
     );
 };
 

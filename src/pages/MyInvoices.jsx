@@ -3,6 +3,8 @@ import api from '../api';
 import Icon from '../components/common/Icon';
 import { useRealtimeInvoices } from '../hooks/useRealtimeInvoices';
 import PreviewModal from '../components/PreviewModal';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 
 import { useActivityLog } from '../hooks/useActivityLog';
 import { getInvoiceDate } from '../utils/helpers';
@@ -358,15 +360,18 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                {previewData && (
-                    <PreviewModal open={!!previewData} onClose={() => setPreviewData(null)} payload={previewData} mode="invoice" isDistribution={true} onEmail={handleSendEmail} onDownload={handleDownloadAction} />
-                )}
-                <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                    <div className="flex items-center space-x-3"><h1 className="text-2xl font-bold text-gray-800">My Invoices</h1></div>
-                    <button onClick={() => navigateTo('salesDashboard')} className="text-sm"><Icon id="arrow-left" className="mr-1" /> Back to Dashboard</button>
-                </header>
+        <>
+            {previewData && (
+                <PreviewModal open={!!previewData} onClose={() => setPreviewData(null)} payload={previewData} mode="invoice" isDistribution={true} onEmail={handleSendEmail} onDownload={handleDownloadAction} />
+            )}
+            <PageHeader
+                title="My Invoices"
+                actions={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo('salesDashboard')} leftIcon={<Icon id="arrow-left" />}>
+                        Back to Dashboard
+                    </Button>
+                }
+            />
                 <div className="flex space-x-1 rounded-xl bg-blue-900/20 p-1 mb-6 overflow-x-auto">
                     <button onClick={() => setActiveTab('pendingApproval')} className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 text-blue-700 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 whitespace-nowrap ${activeTab === 'pendingApproval' ? 'bg-white shadow' : 'text-blue-100 hover:bg-white/[0.12] hover:text-white'}`}>Pending Approval</button>
                     <button onClick={() => setActiveTab('pendingProcurement')} className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 text-blue-700 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 whitespace-nowrap ${activeTab === 'pendingProcurement' ? 'bg-white shadow' : 'text-blue-100 hover:bg-white/[0.12] hover:text-white'}`}>Pending Procurement</button>
@@ -449,8 +454,7 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
                         </table>
                     </div>
                 </div>
-            </div>
-        </div>
+        </>
     );
 };
 export default MyInvoices;

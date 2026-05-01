@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import api from '../api';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import ItemModal from '../components/modals/ItemModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
@@ -234,47 +236,49 @@ const InventoryManagement = ({ navigateTo, userId }) => {
         return (item.id || '').toLowerCase().includes(q) || (item.name || '').toLowerCase().includes(q);
     });
 
-    return (<div className="min-h-screen bg-gray-100">
-        <div className="max-w-7xl mx-auto p-4 md:p-8">
-            {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
-            {isModalOpen && <ItemModal item={editingItem} onSave={handleSaveItem} onClose={handleCloseModal} />}
-            {deletingItemId && <ConfirmationModal title="Confirm Deletion" message="This item will be permanently deleted." onConfirm={handleConfirmDelete} onCancel={handleCancelDelete} confirmText="Delete" confirmColor="bg-red-600 hover:bg-red-700" />}
-            {pendingImport && <ConfirmationModal title="Confirm Import" message={`Found ${pendingImport.length} items. This will update/add to inventory.`} onConfirm={handleConfirmImport} onCancel={handleCancelImport} confirmText="Update & Add" confirmColor="bg-blue-600 hover:bg-blue-700" />}
-            <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-800">Inventory Management</h1>
-                <button onClick={() => navigateTo('controllerDashboard')} className="text-sm text-gray-600 hover:text-blue-600"><Icon id="arrow-left" className="mr-1" /> Back to Dashboard</button>
-            </header>
-            <div className="bg-white p-6 rounded-xl shadow-md">
-                <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                    <h2 className="text-xl font-semibold text-gray-700">All Inventory Items</h2>
-                    <div className="flex flex-wrap items-center gap-2"><input type="file" ref={fileInputRef} onChange={handleFileImport} className="hidden" accept=".csv" />
-                        <button onClick={handleImportClick} className="py-2 px-4 border border-gray-300 rounded-md text-sm font-medium">Import</button>
-                        <button onClick={handleExportToCSV} className="py-2 px-4 border border-gray-300 rounded-md text-sm font-medium">Export</button>
-                        <button onClick={() => handleOpenModal()} className="py-2 px-4 border-transparent rounded-md text-sm font-medium text-white bg-blue-600">Add New</button>
-                        <div className="flex items-center gap-2 ml-2"><input value={invSearch} onChange={(e) => setInvSearch(e.target.value)} placeholder="Search inventory..." className="p-2 border rounded-md text-sm w-56" />
-                            <select value={invField} onChange={(e) => setInvField(e.target.value)} className="p-2 border rounded-md text-sm"><option value="all">All</option>
-                                <option value="sku">SKU</option><option value="name">Name</option></select></div></div></div><div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-gray-50"><tr><th className="p-4 font-semibold text-sm">SKU</th>
-                            <th className="p-4 font-semibold text-sm">Item Name</th><th className="p-4 font-semibold text-sm">Vendor</th>
-                            <th className="p-4 font-semibold text-sm text-center">Type</th><th className="p-4 font-semibold text-sm text-center">Curr</th>
-                            <th className="p-4 font-semibold text-sm text-center">Stock</th><th className="p-4 font-semibold text-sm text-center">Restock At</th>
-                            <th className="p-4 font-semibold text-sm text-right">Price</th><th className="p-4 font-semibold text-sm text-center">Actions</th></tr>
-                        </thead>
-                        <tbody>{filteredInventory.map((item) => (<tr key={item.id} className="border-b hover:bg-gray-50"><td className="p-4 text-sm">{item.id}</td>
-                            <td className="p-4 font-medium">{item.name}</td><td className="p-4 text-sm">{item.vendor}</td>
-                            <td className="p-4 text-sm text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${(item.itemType || 'Hardware') === 'Hardware' ? 'bg-blue-100 text-blue-700' : (item.itemType || 'Hardware') === 'Software' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{item.itemType || 'Hardware'}</span></td>
-                            <td className="p-4 text-sm text-center text-gray-600">{item.currency || 'GHS'}</td>
-                            <td className={`p-4 text-sm text-center font-semibold ${item.stock <= item.restockLimit ? 'text-red-600' : 'text-gray-800'}`}>{item.stock}</td>
-                            <td className="p-4 text-sm text-center">{item.restockLimit}</td><td className="p-4 text-sm text-right">{formatCurrency(item.currency, item.price)}</td>
-                            <td className="p-4 text-center space-x-4"><button onClick={() => handleOpenModal(item)} className="text-blue-600 font-medium">Edit</button>
-                                <button onClick={() => handleDeleteRequest(item.id)} className="text-red-600 font-medium">Delete</button></td></tr>))}
-                        </tbody>
-                    </table>
-                </div>
+    return (<>
+        {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
+        {isModalOpen && <ItemModal item={editingItem} onSave={handleSaveItem} onClose={handleCloseModal} />}
+        {deletingItemId && <ConfirmationModal title="Confirm Deletion" message="This item will be permanently deleted." onConfirm={handleConfirmDelete} onCancel={handleCancelDelete} confirmText="Delete" confirmColor="bg-red-600 hover:bg-red-700" />}
+        {pendingImport && <ConfirmationModal title="Confirm Import" message={`Found ${pendingImport.length} items. This will update/add to inventory.`} onConfirm={handleConfirmImport} onCancel={handleCancelImport} confirmText="Update & Add" confirmColor="bg-blue-600 hover:bg-blue-700" />}
+        <PageHeader
+            title="Inventory Management"
+            actions={
+                <Button variant="ghost" size="sm" onClick={() => navigateTo('controllerDashboard')} leftIcon={<Icon id="arrow-left" />}>
+                    Back to Dashboard
+                </Button>
+            }
+        />
+        <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
+            <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                <h2 className="text-xl font-semibold text-ink">All Inventory Items</h2>
+                <div className="flex flex-wrap items-center gap-2"><input type="file" ref={fileInputRef} onChange={handleFileImport} className="hidden" accept=".csv" />
+                    <Button variant="secondary" size="sm" onClick={handleImportClick}>Import</Button>
+                    <Button variant="secondary" size="sm" onClick={handleExportToCSV}>Export</Button>
+                    <Button variant="primary" size="sm" onClick={() => handleOpenModal()}>Add New</Button>
+                    <div className="flex items-center gap-2 ml-2"><input value={invSearch} onChange={(e) => setInvSearch(e.target.value)} placeholder="Search inventory..." className="p-2 border border-line rounded-md text-sm w-56" />
+                        <select value={invField} onChange={(e) => setInvField(e.target.value)} className="p-2 border border-line rounded-md text-sm"><option value="all">All</option>
+                            <option value="sku">SKU</option><option value="name">Name</option></select></div></div></div><div className="overflow-x-auto">
+                <table className="w-full text-left">
+                    <thead className="bg-surface-sunken"><tr><th className="p-4 font-semibold text-sm">SKU</th>
+                        <th className="p-4 font-semibold text-sm">Item Name</th><th className="p-4 font-semibold text-sm">Vendor</th>
+                        <th className="p-4 font-semibold text-sm text-center">Type</th><th className="p-4 font-semibold text-sm text-center">Curr</th>
+                        <th className="p-4 font-semibold text-sm text-center">Stock</th><th className="p-4 font-semibold text-sm text-center">Restock At</th>
+                        <th className="p-4 font-semibold text-sm text-right">Price</th><th className="p-4 font-semibold text-sm text-center">Actions</th></tr>
+                    </thead>
+                    <tbody>{filteredInventory.map((item) => (<tr key={item.id} className="border-b hover:bg-surface-sunken"><td className="p-4 text-sm">{item.id}</td>
+                        <td className="p-4 font-medium">{item.name}</td><td className="p-4 text-sm">{item.vendor}</td>
+                        <td className="p-4 text-sm text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${(item.itemType || 'Hardware') === 'Hardware' ? 'bg-blue-100 text-blue-700' : (item.itemType || 'Hardware') === 'Software' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{item.itemType || 'Hardware'}</span></td>
+                        <td className="p-4 text-sm text-center text-ink-muted">{item.currency || 'GHS'}</td>
+                        <td className={`p-4 text-sm text-center font-semibold ${item.stock <= item.restockLimit ? 'text-red-600' : 'text-ink'}`}>{item.stock}</td>
+                        <td className="p-4 text-sm text-center">{item.restockLimit}</td><td className="p-4 text-sm text-right">{formatCurrency(item.currency, item.price)}</td>
+                        <td className="p-4 text-center space-x-4"><button onClick={() => handleOpenModal(item)} className="text-blue-600 font-medium">Edit</button>
+                            <button onClick={() => handleDeleteRequest(item.id)} className="text-red-600 font-medium">Delete</button></td></tr>))}
+                    </tbody>
+                </table>
             </div>
         </div>
-    </div>
+    </>
     );
 };
 

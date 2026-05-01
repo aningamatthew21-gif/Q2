@@ -5,6 +5,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import { calculateGrowth, calculateVariance, calculateVariancePercent, groupInvoicesByMonth, generateProjections } from '../utils/analytics';
+import GlassModal from './common/GlassModal';
+import Button from './common/Button';
 
 export default function ReportModal({ role = 'controller', onClose, db }) {
   const [isLoading, setIsLoading] = useState(false);
@@ -339,14 +341,13 @@ export default function ReportModal({ role = 'controller', onClose, db }) {
   const formatCurrency = (amount) => new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', currencyDisplay: 'code' }).format(amount);
 
   return (
-    <div className="fixed inset-0 bg-white/30 bg-opacity-50 backdrop-blur-md flex justify-center items-center z-50 p-4">
-      <div className="bg-white w-full max-w-6xl rounded-lg overflow-auto max-h-[90vh]">
-        <div className="p-4 border-b flex justify-between items-center">
-          <h2 className="text-xl font-bold">Full {role === 'controller' ? 'Controller' : 'Sales'} Report</h2>
-          <button onClick={onClose} className="py-2 px-4 bg-gray-300 rounded">Close</button>
-        </div>
-
-        <div className="p-4">
+    <GlassModal
+      open
+      onClose={onClose}
+      title={`Full ${role === 'controller' ? 'Controller' : 'Sales'} Report`}
+      size="xl"
+    >
+      <div>
           {/* Controls */}
           <div className="mb-6 p-4 bg-gray-50 rounded-lg flex flex-wrap gap-4 items-end">
             {/* ... Date inputs ... */}
@@ -452,9 +453,8 @@ export default function ReportModal({ role = 'controller', onClose, db }) {
               </div>
             </div>
           )}
-        </div>
       </div>
-    </div>
+    </GlassModal>
   );
 }
 

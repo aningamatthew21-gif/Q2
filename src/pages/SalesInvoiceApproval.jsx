@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import api from '../api';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import { formatCurrency } from '../utils/formatting';
 import { logActivity } from '../utils/logger';
 import { getInvoiceDate, generatePermanentId, getNextSequenceNumber } from '../utils/helpers';
@@ -201,31 +203,17 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
     if (error) return <div className="p-8 text-center text-red-600">Error: {error}</div>;
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-                <div className="px-4 py-6 sm:px-0">
-                    <div className="mb-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <button
-                                    onClick={() => navigateTo(isController ? 'controllerDashboard' : 'salesDashboard')}
-                                    className="flex items-center text-blue-600 hover:text-blue-800 mb-2"
-                                >
-                                    <Icon id="arrow-left" className="mr-2" />
-                                    Back to Dashboard
-                                </button>
-                                <h1 className="text-3xl font-bold text-gray-900">
-                                    {isController ? 'Controller Approval & Pricing' : 'Sales Approval'}
-                                </h1>
-                                <p className="mt-2 text-gray-600">
-                                    Review and approve pending invoices. Select a signature before approving.
-                                </p>
-                            </div>
-                            <div>
-                                <div>User: {username}</div>
-                            </div>
-                        </div>
-                    </div>
+        <>
+            <PageHeader
+                title={isController ? 'Controller Approval & Pricing' : 'Sales Approval'}
+                subtitle="Review and approve pending invoices. Select a signature before approving."
+                back={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo(isController ? 'controllerDashboard' : 'salesDashboard')} leftIcon={<Icon id="arrow-left" />}>
+                        Back to Dashboard
+                    </Button>
+                }
+                actions={<div className="text-sm text-ink-muted">User: {username}</div>}
+            />
 
                     {notification && (
                         <div className={`mb-6 p-4 rounded-md ${notification.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
@@ -390,9 +378,7 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
                             </div>
                         )}
                     </div>
-                </div>
-            </div>
-        </div>
+        </>
     );
 };
 

@@ -42,6 +42,45 @@ function recomputeTaxesFromBreakdown(newSubtotal, taxBreakdownJson, oldTaxes, ol
 const router = express.Router();
 router.use(authMiddleware);
 
+/**
+ * Phase 4 (Quote Re-Approval Loop) added four columns to QA_INVOICES:
+ * ORIGINAL_ESTIMATE, REQUIRES_REAPPROVAL, REAPPROVAL_VARIANCE, REAPPROVAL_REASON.
+ *
+ * If the deployment hasn't yet run `node backend/migrate_procurement_schema.js`
+ * since those steps were added, the columns don't exist and any SQL referencing
+ * them throws ORA-00904 ("invalid identifier") — surfacing to the frontend as
+ * a generic 500. This guard checks once at first call and adapts the approve
+ * flow so it works on both old and new schemas. The check is cached for the
+ * process lifetime; if the migration is later run, the server picks up the
+ * new columns on next restart.
+ */
+let _phase4ColumnsAvailable = null;
+async function hasPhase4Columns() {
+  if (_phase4ColumnsAvailable !== null) return _phase4ColumnsAvailable;
+  try {
+    const r = await execute(
+      `SELECT COUNT(*) AS C FROM USER_TAB_COLUMNS
+        WHERE TABLE_NAME = 'QA_INVOICES'
+          AND COLUMN_NAME IN ('ORIGINAL_ESTIMATE','REQUIRES_REAPPROVAL','REAPPROVAL_VARIANCE','REAPPROVAL_REASON')`,
+      {},
+      { outFormat: 4002 }
+    );
+    _phase4ColumnsAvailable = Number(r.rows?.[0]?.C || 0) >= 4;
+    if (!_phase4ColumnsAvailable) {
+      console.warn(
+        '[rfqs] Phase 4 reapproval columns missing on QA_INVOICES. ' +
+        'Run `node backend/migrate_procurement_schema.js` to enable variance-based reapproval. ' +
+        'Approve flow will fall back to the legacy UPDATE without those columns.'
+      );
+    }
+    return _phase4ColumnsAvailable;
+  } catch (err) {
+    console.warn('[rfqs] Phase 4 column probe failed; assuming legacy schema:', err.message);
+    _phase4ColumnsAvailable = false;
+    return false;
+  }
+}
+
 const rowToRFQ = (row) => {
   const activeStatuses = ['SENT', 'RECEIVING', 'COMPARING'];
   const isActive = activeStatuses.includes(row.STATUS);
@@ -893,8 +932,19 @@ router.delete('/:id', requireRole('procurement', 'controller', 'admin'), catchAs
 router.post('/:id/approve', requireRole('procurement', 'admin'), catchAsync(async (req, res) => {
   const { id } = req.params;
 
+  // Tagged step logging — when the approve flow throws a 500, the backend log
+  // tells us which named step failed instead of just a generic stack trace.
+  // Strip after a few weeks once the flow is known-stable.
+  const tag = `[approve ${id}]`;
+  const log = (step, extra) => {
+    if (extra !== undefined) console.log(`${tag} ${step}`, extra);
+    else console.log(`${tag} ${step}`);
+  };
+  log('start');
+
   const rfqRes = await execute('SELECT * FROM QA_RFQS WHERE RFQ_ID = :id', { id });
   if (!rfqRes.rows?.[0]) return res.status(404).json({ success: false, error: 'RFQ not found' });
+  log('rfq loaded', { status: rfqRes.rows[0].STATUS });
   if (rfqRes.rows[0].STATUS !== 'PENDING_APPROVAL') {
     return res.status(400).json({ success: false, error: 'RFQ is not pending approval' });
   }
@@ -908,14 +958,27 @@ router.post('/:id/approve', requireRole('procurement', 'admin'), catchAsync(asyn
   const totalAward = Number(rfqRes.rows[0].TOTAL_AWARD_AMOUNT || 0);
   const pushbackResults = [];
 
-  // Phase 4 — load re-approval variance threshold (whole-percent integer)
-  const varThreshRes = await execute(
-    `SELECT SETTING_VAL FROM QA_PROCUREMENT_SETTINGS WHERE SETTING_KEY = 'reapprovalVarianceThreshold'`
-  );
-  const variancePctThreshold = Number(varThreshRes.rows?.[0]?.SETTING_VAL || 10);
+  // Detect whether Phase 4 reapproval columns are present on this deployment.
+  // If they aren't, we skip variance-based reapproval entirely so the legacy
+  // approve path still works while the migration is pending.
+  const phase4 = await hasPhase4Columns();
+  log('phase4 columns?', phase4);
+
+  // Phase 4 — load re-approval variance threshold (whole-percent integer).
+  // Only meaningful when Phase 4 columns are present.
+  let variancePctThreshold = 10;
+  if (phase4) {
+    try {
+      const varThreshRes = await execute(
+        `SELECT SETTING_VAL FROM QA_PROCUREMENT_SETTINGS WHERE SETTING_KEY = 'reapprovalVarianceThreshold'`
+      );
+      variancePctThreshold = Number(varThreshRes.rows?.[0]?.SETTING_VAL || 10);
+    } catch (_) { /* fall back to default */ }
+  }
   const reapprovalsTriggered = [];
 
   await transaction(async (conn) => {
+    log('tx start');
     // Fetch winning responses and push costs back
     const winRes = await conn.execute(
       `SELECT RESPONSE_ID, PR_ID, UNIT_COST, TOTAL_COST FROM QA_RFQ_RESPONSES
@@ -923,6 +986,7 @@ router.post('/:id/approve', requireRole('procurement', 'admin'), catchAsync(asyn
       { id },
       { outFormat: 4002 }
     );
+    log('winners loaded', winRes.rows?.length);
     for (const r of (winRes.rows || [])) {
       // Award the PR
       await conn.execute(
@@ -990,7 +1054,9 @@ router.post('/:id/approve', requireRole('procurement', 'admin'), catchAsync(asyn
 
     // Recompute invoice totals
     const affectedInvoices = [...new Set(pushbackResults.map(p => p.invoiceId).filter(Boolean))];
+    log('affected invoices', affectedInvoices);
     for (const invId of affectedInvoices) {
+      log('recompute invoice', invId);
       const sumRes = await conn.execute(
         `SELECT NVL(SUM(LINE_TOTAL), 0) AS SUBTOTAL FROM QA_INVOICE_LINE_ITEMS WHERE INVOICE_ID = :iid`,
         { iid: invId },
@@ -1019,24 +1085,29 @@ router.post('/:id/approve', requireRole('procurement', 'admin'), catchAsync(asyn
       const sourcingComplete2 = Number(awardedCountRes.rows[0]?.TOT || 0) >= Number(prCountRes.rows[0]?.TOT || 0);
       const newSourcingStatus = sourcingComplete2 ? 'COMPLETE' : 'PARTIAL';
 
-      // Promote invoice status from 'Pending Pricing' -> 'Pending Approval' once all PRs are fulfilled
+      // Promote invoice status from 'Pending Pricing' -> 'Pending Approval' once all PRs are fulfilled.
+      // Only SELECT ORIGINAL_ESTIMATE when Phase 4 columns are present — selecting a
+      // non-existent column throws ORA-00904 and rolls back the whole transaction.
       const curStatusRes = await conn.execute(
-        `SELECT STATUS, ORIGINAL_ESTIMATE FROM QA_INVOICES WHERE INVOICE_ID = :iid`,
+        phase4
+          ? `SELECT STATUS, ORIGINAL_ESTIMATE FROM QA_INVOICES WHERE INVOICE_ID = :iid`
+          : `SELECT STATUS FROM QA_INVOICES WHERE INVOICE_ID = :iid`,
         { iid: invId },
         { outFormat: 4002 }
       );
       const curStatus = curStatusRes.rows?.[0]?.STATUS || '';
-      const originalEstimate = Number(curStatusRes.rows?.[0]?.ORIGINAL_ESTIMATE || 0);
+      const originalEstimate = phase4 ? Number(curStatusRes.rows?.[0]?.ORIGINAL_ESTIMATE || 0) : 0;
       const promotedStatus = sourcingComplete2 && curStatus === 'Pending Pricing'
         ? 'Pending Approval'
         : curStatus;
 
-      // Phase 4 — variance detection. Only meaningful once sourcing is complete and
-      // we have a positive baseline estimate to compare against.
+      // Phase 4 — variance detection. Only meaningful once sourcing is complete,
+      // we have a positive baseline estimate to compare against, AND the schema
+      // has the Phase 4 columns to record the result.
       let requiresReapproval = 0;
       let reapprovalVariance = null;
       let reapprovalReason = null;
-      if (sourcingComplete2 && originalEstimate > 0) {
+      if (phase4 && sourcingComplete2 && originalEstimate > 0) {
         const variancePct = Math.abs(newTotal - originalEstimate) / originalEstimate * 100;
         reapprovalVariance = Number(variancePct.toFixed(4));
         if (variancePct > variancePctThreshold) {
@@ -1050,38 +1121,72 @@ router.post('/:id/approve', requireRole('procurement', 'admin'), catchAsync(asyn
         }
       }
 
-      await conn.execute(
-        `UPDATE QA_INVOICES SET SUBTOTAL = :sub, TAXES = :tax, TOTAL = :tot, BALANCE_DUE = :bd,
-         SOURCING_STATUS = :ss, STATUS = :ist,
-         REQUIRES_REAPPROVAL = :rr, REAPPROVAL_VARIANCE = :rv, REAPPROVAL_REASON = :rsn,
-         UPDATED_AT = SYSTIMESTAMP WHERE INVOICE_ID = :iid`,
-        {
-          sub: newSubtotal, tax: newTaxes, tot: newTotal, bd: newTotal,
-          ss: newSourcingStatus, ist: promotedStatus,
-          rr: requiresReapproval, rv: reapprovalVariance, rsn: reapprovalReason,
-          iid: invId
-        }
-      );
-
-      if (requiresReapproval === 1) {
+      // Two flavours of UPDATE — Phase 4 (with reapproval columns) vs. legacy.
+      // Splitting at the SQL level (rather than always binding the columns) avoids
+      // ORA-00904 on legacy schemas while keeping the new schema's audit fields.
+      if (phase4) {
         await conn.execute(
-          `INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
-           VALUES ('INVOICE_REAPPROVAL_REQUIRED','INVOICE',:iid,:actor,:payload)`,
+          `UPDATE QA_INVOICES SET SUBTOTAL = :sub, TAXES = :tax, TOTAL = :tot, BALANCE_DUE = :bd,
+           SOURCING_STATUS = :ss, STATUS = :ist,
+           REQUIRES_REAPPROVAL = :rr, REAPPROVAL_VARIANCE = :rv, REAPPROVAL_REASON = :rsn,
+           UPDATED_AT = SYSTIMESTAMP WHERE INVOICE_ID = :iid`,
           {
-            iid: invId,
-            actor: req.user.email,
-            payload: JSON.stringify({
-              rfqId: id,
-              originalEstimate,
-              newTotal,
-              variancePct: reapprovalVariance,
-              threshold: variancePctThreshold
-            })
+            sub: newSubtotal, tax: newTaxes, tot: newTotal, bd: newTotal,
+            ss: newSourcingStatus, ist: promotedStatus,
+            rr: requiresReapproval, rv: reapprovalVariance, rsn: reapprovalReason,
+            iid: invId
+          }
+        );
+      } else {
+        await conn.execute(
+          `UPDATE QA_INVOICES SET SUBTOTAL = :sub, TAXES = :tax, TOTAL = :tot, BALANCE_DUE = :bd,
+           SOURCING_STATUS = :ss, STATUS = :ist,
+           UPDATED_AT = SYSTIMESTAMP WHERE INVOICE_ID = :iid`,
+          {
+            sub: newSubtotal, tax: newTaxes, tot: newTotal, bd: newTotal,
+            ss: newSourcingStatus, ist: promotedStatus,
+            iid: invId
           }
         );
       }
+
+      if (requiresReapproval === 1) {
+        // Guarded — the audit-event INSERT relies on the CHK_PE_ENTITY constraint
+        // having been relaxed (see migrate_procurement_schema.js step 10b) to
+        // accept 'INVOICE'. If the migration hasn't run on this deployment, the
+        // INSERT throws ORA-02290 and the whole approve transaction would roll
+        // back even though all the user-visible work (PR awards, cost pushback,
+        // invoice flagging) succeeded. We log the failure so it's visible in
+        // backend logs and continue, since the event is purely an audit
+        // breadcrumb — the REQUIRES_REAPPROVAL column on QA_INVOICES is the
+        // load-bearing piece of state.
+        try {
+          await conn.execute(
+            `INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
+             VALUES ('INVOICE_REAPPROVAL_REQUIRED','INVOICE',:iid,:actor,:payload)`,
+            {
+              iid: invId,
+              actor: req.user.email,
+              payload: JSON.stringify({
+                rfqId: id,
+                originalEstimate,
+                newTotal,
+                variancePct: reapprovalVariance,
+                threshold: variancePctThreshold
+              })
+            }
+          );
+        } catch (eventErr) {
+          console.warn(
+            `[approve] Failed to log INVOICE_REAPPROVAL_REQUIRED event for ${invId} ` +
+            `(ENTITY_TYPE constraint may not yet allow 'INVOICE' — run ` +
+            `migrate_procurement_schema.js): ${eventErr.message}`
+          );
+        }
+      }
     }
 
+    log('updating RFQ row to AWARDED');
     await conn.execute(
       `UPDATE QA_RFQS
        SET STATUS             = 'AWARDED',
@@ -1094,11 +1199,14 @@ router.post('/:id/approve', requireRole('procurement', 'admin'), catchAsync(asyn
        WHERE RFQ_ID = :id`,
       { vid: vendorId, approver: req.user.email, id }
     );
+    log('inserting RFQ_CONTROLLER_APPROVED event');
     await conn.execute(`
       INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
       VALUES ('RFQ_CONTROLLER_APPROVED','RFQ',:id,:actor,:payload)
     `, { id, actor: req.user.email, payload: JSON.stringify({ totalAward, pushbackResults }) });
+    log('tx body complete (about to commit)');
   });
+  log('tx committed');
 
   emitToAll('rfq:updated');
   emitToAll('pr:updated');

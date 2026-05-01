@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import { formatCurrency } from '../utils/formatting';
 import { useDebounce } from '../hooks/useDebounce';
 import { useActivityLog } from '../hooks/useActivityLog';
@@ -121,19 +123,27 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
     const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                    <div className="flex items-center space-x-3">
-                        <h1 className="text-2xl font-bold text-gray-800">All Invoices {pageContext?.aging && `(${pageContext.aging})`}</h1>
-                        <div className="flex items-center text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">
-                            <Icon id="clock" className="w-4 h-4 mr-1" />
-                            Sorted: Newest to Oldest
-                        </div>
-                    </div>
-                    <button onClick={() => navigateTo('controllerDashboard')} className="text-sm"><Icon id="arrow-left" className="mr-1" /> Back to Dashboard</button>
-                </header>
-                <div className="bg-white p-6 rounded-xl shadow-md">
+        <>
+            <PageHeader
+                title={`All Invoices${pageContext?.aging ? ` (${pageContext.aging})` : ''}`}
+                subtitle={
+                    <span className="inline-flex items-center text-ink-muted">
+                        <Icon id="clock" className="w-4 h-4 mr-1" />
+                        Sorted: Newest to Oldest
+                    </span>
+                }
+                actions={
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigateTo('controllerDashboard')}
+                        leftIcon={<Icon id="arrow-left" />}
+                    >
+                        Back to Dashboard
+                    </Button>
+                }
+            />
+            <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
                     {/* Filters */}
                     <div className="flex gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
                         <div>
@@ -271,13 +281,12 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
                     )}
 
                     {loading && invoices.length > 0 && (
-                        <div className="mt-4 text-center text-gray-500">
+                        <div className="mt-4 text-center text-ink-muted">
                             Loading more...
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
+        </>
     );
 };
 

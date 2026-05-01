@@ -3,6 +3,8 @@ import api from '../api';
 import { useRealtimeInventory } from '../hooks/useRealtimeInventory';
 import { useRealtimeCustomers } from '../hooks/useRealtimeCustomers';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import QuantityModal from '../components/modals/QuantityModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
@@ -378,52 +380,50 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
     if (!customers || !inventory) return <div className="p-8 text-center text-red-500">Could not load required data.</div>;
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
-                {addingItem && <QuantityModal item={addingItem} onClose={() => setAddingItem(null)} onConfirm={handleAddItem} />}
-                {removingItem && <ConfirmationModal title="Confirm Removal" message={`Remove "${removingItem.name}" from the quote?`} onConfirm={handleConfirmRemoveItem} onCancel={() => setRemovingItem(null)} confirmText="Remove" confirmColor="bg-red-600 hover:bg-red-700" />}
+        <>
+            {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
+            {addingItem && <QuantityModal item={addingItem} onClose={() => setAddingItem(null)} onConfirm={handleAddItem} />}
+            {removingItem && <ConfirmationModal title="Confirm Removal" message={`Remove "${removingItem.name}" from the quote?`} onConfirm={handleConfirmRemoveItem} onCancel={() => setRemovingItem(null)} confirmText="Remove" confirmColor="bg-red-600 hover:bg-red-700" />}
 
-                {/* Phase 4 — re-approval banner for variance-flagged invoices */}
-                {invoice?.requiresReapproval && (
-                    <ReApprovalBanner
-                        invoice={invoice}
-                        canAct={
-                            currentUser?.role === 'controller' ||
-                            currentUser?.role === 'admin' ||
-                            currentUser?.role === 'sales_main' ||
-                            invoice?.salesPersonId === currentUser?.email
-                        }
-                        onDecision={handleReapprovalDecision}
-                        submitting={reapprovalSubmitting}
-                    />
-                )}
+            {/* Phase 4 — re-approval banner for variance-flagged invoices */}
+            {invoice?.requiresReapproval && (
+                <ReApprovalBanner
+                    invoice={invoice}
+                    canAct={
+                        currentUser?.role === 'controller' ||
+                        currentUser?.role === 'admin' ||
+                        currentUser?.role === 'sales_main' ||
+                        invoice?.salesPersonId === currentUser?.email
+                    }
+                    onDecision={handleReapprovalDecision}
+                    submitting={reapprovalSubmitting}
+                />
+            )}
 
-                <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                    <div>
-                        <h1 className="text-2xl font-bold text-gray-800">Edit Invoice #{invoiceId}</h1>
-                        {invoice.sourcingStatus && invoice.sourcingStatus !== 'NONE' && (
-                            <span className={`inline-block mt-1 px-3 py-1 rounded-full text-xs font-medium ${
-                                invoice.sourcingStatus === 'PENDING'  ? 'bg-amber-100 text-amber-800' :
-                                invoice.sourcingStatus === 'PARTIAL'  ? 'bg-blue-100 text-blue-800'   :
-                                invoice.sourcingStatus === 'COMPLETE' ? 'bg-green-100 text-green-800' :
-                                'bg-gray-100 text-gray-800'
-                            }`}>
-                                {invoice.sourcingStatus === 'PENDING'  ? 'Awaiting Procurement' :
-                                 invoice.sourcingStatus === 'PARTIAL'  ? 'Sourcing In Progress' :
-                                 invoice.sourcingStatus === 'COMPLETE' ? 'Sourcing Complete'    :
-                                 invoice.sourcingStatus}
-                                {invoice.prCount > 0 && ` (${invoice.prCount} PR${invoice.prCount > 1 ? 's' : ''})`}
-                            </span>
-                        )}
-                    </div>
-                    <button
-                        onClick={handleBackNavigation}
-                        className="text-sm text-gray-600 hover:text-blue-600"
-                    >
-                        <Icon id="times" className="mr-1" /> Cancel
-                    </button>
-                </header>
+            <PageHeader
+                title={`Edit Invoice #${invoiceId}`}
+                subtitle={
+                    invoice.sourcingStatus && invoice.sourcingStatus !== 'NONE' ? (
+                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
+                            invoice.sourcingStatus === 'PENDING'  ? 'bg-amber-100 text-amber-800' :
+                            invoice.sourcingStatus === 'PARTIAL'  ? 'bg-blue-100 text-blue-800'   :
+                            invoice.sourcingStatus === 'COMPLETE' ? 'bg-green-100 text-green-800' :
+                            'bg-gray-100 text-gray-800'
+                        }`}>
+                            {invoice.sourcingStatus === 'PENDING'  ? 'Awaiting Procurement' :
+                             invoice.sourcingStatus === 'PARTIAL'  ? 'Sourcing In Progress' :
+                             invoice.sourcingStatus === 'COMPLETE' ? 'Sourcing Complete'    :
+                             invoice.sourcingStatus}
+                            {invoice.prCount > 0 && ` (${invoice.prCount} PR${invoice.prCount > 1 ? 's' : ''})`}
+                        </span>
+                    ) : null
+                }
+                actions={
+                    <Button variant="ghost" size="sm" onClick={handleBackNavigation} leftIcon={<Icon id="times" />}>
+                        Cancel
+                    </Button>
+                }
+            />
 
                 {sourcingLocked && (
                     <div className="bg-amber-50 border-l-4 border-amber-400 rounded-md p-4 mb-6 text-sm text-amber-800 flex items-start gap-2">
@@ -720,8 +720,7 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
+        </>
     );
 };
 

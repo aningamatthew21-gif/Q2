@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import Icon from '../common/Icon';
+import GlassModal from '../common/GlassModal';
+import Button from '../common/Button';
 
 /**
  * RecommendVendorModal — Phase 3
@@ -8,14 +10,6 @@ import Icon from '../common/Icon';
  * Submitting sends POST /api/rfqs/:id/recommend which transitions the RFQ to
  * PENDING_APPROVAL. Final award + cost pushback happens when the Procurement Head
  * approves.
- *
- * Props:
- *  - rfq:             full rfq payload (needed for line-item count + currency)
- *  - vendor:          the vendor being recommended
- *  - recommendation:  optional — the /recommendation response, used to pre-fill
- *                     score/reason if this vendor is the system pick
- *  - onSubmit:        (payload) => Promise — called with { vendorId, responseIds, score, reason, allowPartial }
- *  - onCancel:        () => void
  */
 const RecommendVendorModal = ({ rfq, vendor, recommendation, onSubmit, onCancel }) => {
     // Derive the responses + totals for this vendor
@@ -73,139 +67,124 @@ const RecommendVendorModal = ({ rfq, vendor, recommendation, onSubmit, onCancel 
 
     const fmtMoney = (n) => `${currency} ${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
 
+    const footer = (
+        <>
+            <Button variant="secondary" onClick={onCancel} disabled={submitting}>Cancel</Button>
+            <Button variant="primary" onClick={handleSubmit} disabled={!canSubmit}>
+                {submitting ? 'Submitting…' : 'Submit Recommendation'}
+            </Button>
+        </>
+    );
+
     return (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                <div className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white px-6 py-4 rounded-t-xl">
-                    <div className="flex items-center gap-3">
-                        <Icon id="lightbulb" className="text-2xl" />
-                        <div>
-                            <h2 className="text-xl font-bold">Recommend Vendor for Award</h2>
-                            <p className="text-sm opacity-90">This recommendation will be sent to the Procurement Head for approval.</p>
+        <GlassModal
+            open
+            onClose={onCancel}
+            title="Recommend Vendor for Award"
+            description="This recommendation will be sent to the Procurement Head for approval."
+            size="lg"
+            footer={footer}
+        >
+            <div className="space-y-5">
+                {/* Vendor summary */}
+                <div className="bg-surface-sunken border border-line rounded-card p-4">
+                    <p className="text-xs text-ink-muted uppercase tracking-wide">Recommended Vendor</p>
+                    <p className="text-lg font-bold text-ink mt-1">{vendor?.vendorName}</p>
+                    {vendor?.contactEmail && (
+                        <p className="text-sm text-ink-muted">{vendor.contactEmail}</p>
+                    )}
+                    <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                        <div className="bg-surface rounded-card p-2 border border-line">
+                            <p className="text-[10px] text-ink-muted uppercase">Total Cost</p>
+                            <p className="text-sm font-semibold text-ink">{fmtMoney(totalAmount)}</p>
+                        </div>
+                        <div className="bg-surface rounded-card p-2 border border-line">
+                            <p className="text-[10px] text-ink-muted uppercase">Lines Quoted</p>
+                            <p className="text-sm font-semibold text-ink">{respondedLines} / {totalLines}</p>
+                        </div>
+                        <div className="bg-surface rounded-card p-2 border border-line">
+                            <p className="text-[10px] text-ink-muted uppercase">Rating</p>
+                            <p className="text-sm font-semibold text-ink">{vendor?.rating ? `${vendor.rating}/5` : '—'}</p>
                         </div>
                     </div>
                 </div>
 
-                <div className="p-6 space-y-5">
-                    {/* Vendor summary */}
-                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide">Recommended Vendor</p>
-                        <p className="text-lg font-bold text-gray-900 mt-1">{vendor?.vendorName}</p>
-                        {vendor?.contactEmail && (
-                            <p className="text-sm text-gray-600">{vendor.contactEmail}</p>
-                        )}
-                        <div className="mt-3 grid grid-cols-3 gap-3 text-center">
-                            <div className="bg-white rounded p-2 border">
-                                <p className="text-[10px] text-gray-500 uppercase">Total Cost</p>
-                                <p className="text-sm font-semibold">{fmtMoney(totalAmount)}</p>
-                            </div>
-                            <div className="bg-white rounded p-2 border">
-                                <p className="text-[10px] text-gray-500 uppercase">Lines Quoted</p>
-                                <p className="text-sm font-semibold">{respondedLines} / {totalLines}</p>
-                            </div>
-                            <div className="bg-white rounded p-2 border">
-                                <p className="text-[10px] text-gray-500 uppercase">Rating</p>
-                                <p className="text-sm font-semibold">{vendor?.rating ? `${vendor.rating}/5` : '—'}</p>
+                {/* Partial-response warning */}
+                {isPartial && (
+                    <div className="bg-warning-soft border border-warning/40 rounded-card p-4">
+                        <div className="flex items-start gap-3">
+                            <Icon id="exclamation-triangle" className="text-warning text-xl mt-0.5" />
+                            <div className="flex-1">
+                                <p className="font-semibold text-warning">Partial Response Detected</p>
+                                <p className="text-sm text-ink-muted mt-1">
+                                    This vendor has not quoted on all {totalLines} line items. Missing:
+                                </p>
+                                <ul className="text-xs text-ink mt-1 list-disc list-inside">
+                                    {missingLines.slice(0, 3).map(li => (
+                                        <li key={li.prId}>{li.itemName}</li>
+                                    ))}
+                                    {missingLines.length > 3 && (
+                                        <li>… and {missingLines.length - 3} more</li>
+                                    )}
+                                </ul>
+                                <label className="flex items-center gap-2 mt-3 text-sm text-ink cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={allowPartial}
+                                        onChange={(e) => setAllowPartial(e.target.checked)}
+                                        className="rounded border-warning"
+                                    />
+                                    <span>Allow partial award — the un-quoted lines will remain open for a future RFQ.</span>
+                                </label>
                             </div>
                         </div>
                     </div>
+                )}
 
-                    {/* Partial-response warning */}
-                    {isPartial && (
-                        <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
-                            <div className="flex items-start gap-3">
-                                <Icon id="exclamation-triangle" className="text-amber-600 text-xl mt-0.5" />
-                                <div className="flex-1">
-                                    <p className="font-semibold text-amber-900">Partial Response Detected</p>
-                                    <p className="text-sm text-amber-800 mt-1">
-                                        This vendor has not quoted on all {totalLines} line items. Missing:
-                                    </p>
-                                    <ul className="text-xs text-amber-900 mt-1 list-disc list-inside">
-                                        {missingLines.slice(0, 3).map(li => (
-                                            <li key={li.prId}>{li.itemName}</li>
-                                        ))}
-                                        {missingLines.length > 3 && (
-                                            <li>… and {missingLines.length - 3} more</li>
-                                        )}
-                                    </ul>
-                                    <label className="flex items-center gap-2 mt-3 text-sm text-amber-900 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={allowPartial}
-                                            onChange={(e) => setAllowPartial(e.target.checked)}
-                                            className="rounded border-amber-400"
-                                        />
-                                        <span>Allow partial award — the un-quoted lines will remain open for a future RFQ.</span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Score field */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-800 mb-1">
-                            Recommendation Score <span className="text-xs text-gray-400">(optional, 0–100)</span>
-                        </label>
-                        <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.1"
-                            value={score}
-                            onChange={(e) => setScore(e.target.value)}
-                            className="w-32 p-2 border rounded-md text-sm"
-                        />
-                        {systemPick && (
-                            <p className="text-xs text-gray-500 mt-1">
-                                Pre-filled with system-calculated weighted score.
-                            </p>
-                        )}
-                    </div>
-
-                    {/* Reason */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-800 mb-1">
-                            Recommendation Reason <span className="text-red-500">*</span>
-                        </label>
-                        <textarea
-                            value={reason}
-                            onChange={(e) => setReason(e.target.value)}
-                            rows={3}
-                            maxLength={500}
-                            placeholder="e.g. Lowest total cost with fastest lead time and full line coverage."
-                            className="w-full p-2 border rounded-md text-sm"
-                        />
-                        <p className="text-xs text-gray-400 mt-0.5 text-right">{reason.length}/500</p>
-                    </div>
-
-                    {error && (
-                        <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">
-                            {error}
-                        </div>
+                {/* Score field */}
+                <div>
+                    <label className="block text-sm font-medium text-ink mb-1">
+                        Recommendation Score <span className="text-xs text-ink-subtle">(optional, 0–100)</span>
+                    </label>
+                    <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={score}
+                        onChange={(e) => setScore(e.target.value)}
+                        className="w-32 p-2 border border-line rounded-card text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface"
+                    />
+                    {systemPick && (
+                        <p className="text-xs text-ink-muted mt-1">
+                            Pre-filled with system-calculated weighted score.
+                        </p>
                     )}
                 </div>
 
-                <div className="bg-gray-50 px-6 py-4 rounded-b-xl flex justify-end gap-2">
-                    <button
-                        onClick={onCancel}
-                        className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-100"
-                        disabled={submitting}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={!canSubmit}
-                        className={`px-5 py-2 rounded-md text-sm font-semibold text-white ${
-                            canSubmit ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-300 cursor-not-allowed'
-                        }`}
-                    >
-                        {submitting ? 'Submitting…' : 'Submit Recommendation'}
-                    </button>
+                {/* Reason */}
+                <div>
+                    <label className="block text-sm font-medium text-ink mb-1">
+                        Recommendation Reason <span className="text-danger">*</span>
+                    </label>
+                    <textarea
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        rows={3}
+                        maxLength={500}
+                        placeholder="e.g. Lowest total cost with fastest lead time and full line coverage."
+                        className="w-full p-2 border border-line rounded-card text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface"
+                    />
+                    <p className="text-xs text-ink-subtle mt-0.5 text-right">{reason.length}/500</p>
                 </div>
+
+                {error && (
+                    <div className="bg-danger-soft border border-danger/30 rounded-card p-3 text-sm text-danger">
+                        {error}
+                    </div>
+                )}
             </div>
-        </div>
+        </GlassModal>
     );
 };
 

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import api from '../api';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import { formatCurrency } from '../utils/formatting';
 import { logActivity } from '../utils/logger';
 import { generatePermanentId, getNextSequenceNumber } from '../utils/helpers';
@@ -349,30 +351,24 @@ const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
     if (!invoice) return <div className="p-8 text-center">Invoice not found</div>;
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-                <div className="px-4 py-6 sm:px-0">
-                    <div className="mb-6 flex items-center justify-between">
-                        <div>
-                            <button
-                                onClick={() => navigateTo('salesInvoiceApproval')}
-                                className="flex items-center text-blue-600 hover:text-blue-800 mb-2"
-                            >
-                                <Icon id="arrow-left" className="mr-2" />
-                                Back to Approval List
-                            </button>
-                            <h1 className="text-3xl font-bold text-gray-900">Review Invoice: {invoice.id}</h1>
-                            <p className="mt-2 text-gray-600">
-                                Review details and approve or reject this invoice.
-                            </p>
-                        </div>
-                        <div className={`px-4 py-2 rounded-full text-sm font-semibold ${invoice.status === 'Pending Approval' ? 'bg-yellow-100 text-yellow-800' :
-                            invoice.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                                'bg-red-100 text-red-800'
-                            }`}>
-                            {displayInvoice.status}
-                        </div>
+        <>
+            <PageHeader
+                title={`Review Invoice: ${invoice.id}`}
+                subtitle="Review details and approve or reject this invoice."
+                back={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo('salesInvoiceApproval')} leftIcon={<Icon id="arrow-left" />}>
+                        Back to Approval List
+                    </Button>
+                }
+                actions={
+                    <div className={`px-4 py-2 rounded-full text-sm font-semibold ${invoice.status === 'Pending Approval' ? 'bg-yellow-100 text-yellow-800' :
+                        invoice.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                            'bg-red-100 text-red-800'
+                        }`}>
+                        {displayInvoice.status}
                     </div>
+                }
+            />
 
                     {notification && (
                         <div className={`mb-6 p-4 rounded-md ${notification.type === 'success'
@@ -596,9 +592,7 @@ const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
+        </>
     );
 };
 

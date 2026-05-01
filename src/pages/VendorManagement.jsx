@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import api from '../api';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import VendorModal from '../components/modals/VendorModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
@@ -79,111 +81,111 @@ const VendorManagement = ({ navigateTo, userId, currentUser }) => {
     }, [vendors, debouncedSearchTerm]);
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
-                {isModalOpen && <VendorModal vendor={editingVendor} onSave={handleSaveVendor} onClose={handleCloseModal} />}
-                {deletingVendor && (
-                    <ConfirmationModal
-                        title="Confirm Deactivation"
-                        message={`Deactivate vendor "${deletingVendor.name}"? They will be hidden from RFQ selection but historical records are preserved.`}
-                        onConfirm={() => handleDeleteVendor(deletingVendor)}
-                        onCancel={() => setDeletingVendor(null)}
-                        confirmText="Deactivate"
-                        confirmColor="bg-red-600"
+        <>
+            {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
+            {isModalOpen && <VendorModal vendor={editingVendor} onSave={handleSaveVendor} onClose={handleCloseModal} />}
+            {deletingVendor && (
+                <ConfirmationModal
+                    title="Confirm Deactivation"
+                    message={`Deactivate vendor "${deletingVendor.name}"? They will be hidden from RFQ selection but historical records are preserved.`}
+                    onConfirm={() => handleDeleteVendor(deletingVendor)}
+                    onCancel={() => setDeletingVendor(null)}
+                    confirmText="Deactivate"
+                    confirmColor="bg-red-600"
+                />
+            )}
+
+            <PageHeader
+                title="Vendor Management"
+                actions={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo(backPage)} leftIcon={<Icon id="arrow-left" />}>
+                        Back
+                    </Button>
+                }
+            />
+
+            <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold text-ink">All Vendors</h2>
+                    <Button variant="primary" size="sm" onClick={() => handleOpenModal()} leftIcon={<Icon id="plus" />}>
+                        Add Vendor
+                    </Button>
+                </div>
+
+                <div className="mb-4">
+                    <input
+                        type="text"
+                        placeholder="Search vendors by name, contact, email, or category..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full p-3 border border-line rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                     />
-                )}
+                    {searchTerm && (
+                        <div className="mt-2 text-sm text-ink-muted">
+                            Showing {filteredVendors.length} of {vendors.length} vendors
+                        </div>
+                    )}
+                </div>
 
-                <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold">Vendor Management</h1>
-                    <button onClick={() => navigateTo(backPage)} className="text-sm">
-                        <Icon id="arrow-left" className="mr-1" /> Back
-                    </button>
-                </header>
-
-                <div className="bg-white p-6 rounded-xl shadow-md">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-semibold">All Vendors</h2>
-                        <button onClick={() => handleOpenModal()} className="py-2 px-4 text-white bg-blue-600 rounded-md text-sm">
-                            <Icon id="plus" className="mr-2" />Add Vendor
-                        </button>
-                    </div>
-
-                    <div className="mb-4">
-                        <input
-                            type="text"
-                            placeholder="Search vendors by name, contact, email, or category..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        {searchTerm && (
-                            <div className="mt-2 text-sm text-gray-600">
-                                Showing {filteredVendors.length} of {vendors.length} vendors
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="overflow-x-auto">
-                        {vendorsLoading ? (
-                            <div className="text-center py-8">
-                                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                                <p className="mt-2 text-gray-600">Loading vendors...</p>
-                            </div>
-                        ) : (
-                            <table className="w-full text-left">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="p-3 font-semibold">Name</th>
-                                        <th className="p-3 font-semibold">Category</th>
-                                        <th className="p-3 font-semibold">Contact</th>
-                                        <th className="p-3 font-semibold">Email</th>
-                                        <th className="p-3 font-semibold text-center">Rating</th>
-                                        <th className="p-3 font-semibold text-center">Lead Time</th>
-                                        <th className="p-3 font-semibold text-center">Status</th>
-                                        <th className="p-3 font-semibold text-center">Actions</th>
+                <div className="overflow-x-auto">
+                    {vendorsLoading ? (
+                        <div className="text-center py-8">
+                            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                            <p className="mt-2 text-ink-muted">Loading vendors...</p>
+                        </div>
+                    ) : (
+                        <table className="w-full text-left">
+                            <thead className="bg-surface-sunken">
+                                <tr>
+                                    <th className="p-3 font-semibold">Name</th>
+                                    <th className="p-3 font-semibold">Category</th>
+                                    <th className="p-3 font-semibold">Contact</th>
+                                    <th className="p-3 font-semibold">Email</th>
+                                    <th className="p-3 font-semibold text-center">Rating</th>
+                                    <th className="p-3 font-semibold text-center">Lead Time</th>
+                                    <th className="p-3 font-semibold text-center">Status</th>
+                                    <th className="p-3 font-semibold text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredVendors.map(v => (
+                                    <tr key={v.id} className="border-b hover:bg-surface-sunken">
+                                        <td className="p-3 font-medium">{v.name}</td>
+                                        <td className="p-3">{v.category || '—'}</td>
+                                        <td className="p-3">{v.contactPerson || '—'}</td>
+                                        <td className="p-3">{v.contactEmail || '—'}</td>
+                                        <td className="p-3 text-center">{Number(v.rating || 0).toFixed(1)} ★</td>
+                                        <td className="p-3 text-center">{v.leadTimeDays || 0}d</td>
+                                        <td className="p-3 text-center">
+                                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                                v.status === 'active' ? 'bg-green-100 text-green-800' :
+                                                v.status === 'suspended' ? 'bg-yellow-100 text-yellow-800' :
+                                                'bg-gray-100 text-gray-600'
+                                            }`}>
+                                                {v.status}
+                                            </span>
+                                        </td>
+                                        <td className="p-3 text-center space-x-4">
+                                            <button onClick={() => handleOpenModal(v)} className="text-blue-600 font-medium">Edit</button>
+                                            {canDelete && (
+                                                <button onClick={() => setDeletingVendor(v)} className="text-red-600 font-medium">Deactivate</button>
+                                            )}
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredVendors.map(v => (
-                                        <tr key={v.id} className="border-b hover:bg-gray-50">
-                                            <td className="p-3 font-medium">{v.name}</td>
-                                            <td className="p-3">{v.category || '—'}</td>
-                                            <td className="p-3">{v.contactPerson || '—'}</td>
-                                            <td className="p-3">{v.contactEmail || '—'}</td>
-                                            <td className="p-3 text-center">{Number(v.rating || 0).toFixed(1)} ★</td>
-                                            <td className="p-3 text-center">{v.leadTimeDays || 0}d</td>
-                                            <td className="p-3 text-center">
-                                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                                    v.status === 'active' ? 'bg-green-100 text-green-800' :
-                                                    v.status === 'suspended' ? 'bg-yellow-100 text-yellow-800' :
-                                                    'bg-gray-100 text-gray-600'
-                                                }`}>
-                                                    {v.status}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 text-center space-x-4">
-                                                <button onClick={() => handleOpenModal(v)} className="text-blue-600 font-medium">Edit</button>
-                                                {canDelete && (
-                                                    <button onClick={() => setDeletingVendor(v)} className="text-red-600 font-medium">Deactivate</button>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {filteredVendors.length === 0 && (
-                                        <tr>
-                                            <td colSpan="8" className="p-6 text-center text-gray-500">
-                                                No vendors found. Click "Add Vendor" to create one.
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
+                                ))}
+                                {filteredVendors.length === 0 && (
+                                    <tr>
+                                        <td colSpan="8" className="p-6 text-center text-ink-muted">
+                                            No vendors found. Click "Add Vendor" to create one.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
             </div>
-        </div>
+        </>
     );
 };
 

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api from '../api';
 import socket from '../socket';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
 import LogVendorResponseModal from '../components/modals/LogVendorResponseModal';
@@ -295,6 +297,15 @@ MIDSA Procurement`;
     // Procurement-head approve/reject handlers. Kept the original function names to avoid
     // ripple renames in the JSX below — the "Controller" suffix is a legacy artifact now
     // meaning "the senior approver," which for RFQs is Procurement Head (not Finance).
+    // Surface the backend's actual error message rather than the axios default
+    // ("Request failed with status code 500"). The interceptor in src/api.js
+    // hangs the response payload off `err.response.data`; if present it usually
+    // has a useful `error` string from our errorHandler middleware.
+    const extractError = (err, fallback) =>
+        err?.response?.data?.error
+        || err?.message
+        || fallback;
+
     const handleControllerApprove = async () => {
         try {
             const res = await api.post(`/rfqs/${rfqId}/approve`);
@@ -303,7 +314,7 @@ MIDSA Procurement`;
             setNotification({ type: 'success', message: 'RFQ approved — costs pushed to invoice.' });
             fetchRfq();
         } catch (err) {
-            setNotification({ type: 'error', message: err.message || 'Approval failed.' });
+            setNotification({ type: 'error', message: extractError(err, 'Approval failed.') });
         }
     };
 
@@ -315,7 +326,7 @@ MIDSA Procurement`;
             setNotification({ type: 'success', message: 'RFQ sent back for re-evaluation.' });
             fetchRfq();
         } catch (err) {
-            setNotification({ type: 'error', message: err.message || 'Rejection failed.' });
+            setNotification({ type: 'error', message: extractError(err, 'Rejection failed.') });
         }
     };
 
@@ -457,17 +468,17 @@ MIDSA Procurement`;
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600"></div>
+            <div className="flex items-center justify-center py-24">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-primary"></div>
             </div>
         );
     }
 
     if (error || !rfq) {
         return (
-            <div className="min-h-screen bg-gray-100 p-8">
-                <p className="text-red-600">Error: {error || 'RFQ not found.'}</p>
-                <button onClick={() => navigateTo('rfqList')} className="mt-4 text-blue-600">Back</button>
+            <div className="py-8">
+                <p className="text-danger">Error: {error || 'RFQ not found.'}</p>
+                <Button variant="ghost" size="sm" onClick={() => navigateTo('rfqList')} className="mt-4">Back</Button>
             </div>
         );
     }
@@ -475,67 +486,68 @@ MIDSA Procurement`;
     const isFinal = rfq.status === 'AWARDED' || rfq.status === 'CANCELLED';
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                {notification && (
-                    <Notification
-                        message={notification.message}
-                        type={notification.type}
-                        onDismiss={() => setNotification(null)}
-                    />
-                )}
-                {confirmCancel && (
-                    <ConfirmationModal
-                        title="Cancel RFQ"
-                        message={`Cancel RFQ ${rfq.rfqNumber}? Linked PRs will revert to OPEN.`}
-                        onConfirm={handleCancel}
-                        onCancel={() => setConfirmCancel(false)}
-                        confirmText="Cancel RFQ"
-                        confirmColor="bg-red-600"
-                    />
-                )}
-                {logVendor && (
-                    <LogVendorResponseModal
-                        rfq={rfq}
-                        vendor={logVendor}
-                        defaultPrId={logDefaultPr}
-                        onSave={handleSaveResponse}
-                        onCancel={() => { setLogVendor(null); setLogDefaultPr(null); }}
-                    />
-                )}
-                {recommendVendor && (
-                    <RecommendVendorModal
-                        rfq={rfq}
-                        vendor={recommendVendor}
-                        recommendation={recommendation}
-                        onSubmit={handleRecommend}
-                        onCancel={() => setRecommendVendor(null)}
-                    />
-                )}
-                {/* RFQ PDF Preview Modal */}
-                <RFQPreviewModal
-                    open={showPreview}
-                    onClose={() => setShowPreview(false)}
-                    rfqData={previewRfqData}
-                    onConfirmSend={async () => {
-                        await handleSendEmails();
-                        setShowPreview(false);
-                    }}
-                    onSaveDraft={() => setShowPreview(false)}
+        <>
+            {notification && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onDismiss={() => setNotification(null)}
                 />
+            )}
+            {confirmCancel && (
+                <ConfirmationModal
+                    title="Cancel RFQ"
+                    message={`Cancel RFQ ${rfq.rfqNumber}? Linked PRs will revert to OPEN.`}
+                    onConfirm={handleCancel}
+                    onCancel={() => setConfirmCancel(false)}
+                    confirmText="Cancel RFQ"
+                    confirmColor="bg-red-600"
+                />
+            )}
+            {logVendor && (
+                <LogVendorResponseModal
+                    rfq={rfq}
+                    vendor={logVendor}
+                    defaultPrId={logDefaultPr}
+                    onSave={handleSaveResponse}
+                    onCancel={() => { setLogVendor(null); setLogDefaultPr(null); }}
+                />
+            )}
+            {recommendVendor && (
+                <RecommendVendorModal
+                    rfq={rfq}
+                    vendor={recommendVendor}
+                    recommendation={recommendation}
+                    onSubmit={handleRecommend}
+                    onCancel={() => setRecommendVendor(null)}
+                />
+            )}
+            {/* RFQ PDF Preview Modal */}
+            <RFQPreviewModal
+                open={showPreview}
+                onClose={() => setShowPreview(false)}
+                rfqData={previewRfqData}
+                onConfirmSend={async () => {
+                    await handleSendEmails();
+                    setShowPreview(false);
+                }}
+                onSaveDraft={() => setShowPreview(false)}
+            />
 
-                <header className="bg-white p-4 rounded-xl shadow-md mb-6 flex justify-between items-center">
-                    <div>
-                        <div className="flex items-center gap-3">
-                            <h1 className="text-2xl font-bold">{rfq.rfqNumber}</h1>
-                            <StatusBadge value={rfq.status} />
-                        </div>
-                        <p className="text-sm text-gray-500">{rfq.title}</p>
-                    </div>
-                    <button onClick={() => navigateTo('rfqList')} className="text-sm">
-                        <Icon id="arrow-left" className="mr-1" /> Back
-                    </button>
-                </header>
+            <PageHeader
+                title={
+                    <span className="flex items-center gap-3">
+                        {rfq.rfqNumber}
+                        <StatusBadge value={rfq.status} />
+                    </span>
+                }
+                subtitle={rfq.title}
+                actions={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo('rfqList')} leftIcon={<Icon id="arrow-left" />}>
+                        Back
+                    </Button>
+                }
+            />
 
                 {/* Workflow stepper — shows the 7-stage RFQ lifecycle at a glance */}
                 <RFQWorkflowStepper status={rfq.status} />
@@ -1018,15 +1030,14 @@ MIDSA Procurement`;
 
                         {/* Notes card */}
                         {rfq.notes && (
-                            <div className="bg-white p-6 rounded-xl shadow-md">
+                            <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
                                 <h3 className="font-semibold mb-2">Notes</h3>
-                                <p className="text-sm text-gray-600 whitespace-pre-wrap">{rfq.notes}</p>
+                                <p className="text-sm text-ink-muted whitespace-pre-wrap">{rfq.notes}</p>
                             </div>
                         )}
                     </div>
                 </div>
-            </div>
-        </div>
+        </>
     );
 };
 

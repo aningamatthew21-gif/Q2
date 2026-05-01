@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 
 const SETTING_META = {
@@ -107,27 +109,28 @@ const ProcurementSettings = ({ navigateTo, currentUser }) => {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600"></div>
+            <div className="flex items-center justify-center py-24">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-primary"></div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-3xl mx-auto p-4 md:p-8">
-                {notification && (
-                    <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />
-                )}
+        <>
+            {notification && (
+                <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />
+            )}
 
-                <header className="bg-white p-4 rounded-xl shadow-md mb-6 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold">Procurement Settings</h1>
-                    <button onClick={() => navigateTo(backPage)} className="text-sm">
-                        <Icon id="arrow-left" className="mr-1" /> Back
-                    </button>
-                </header>
+            <PageHeader
+                title="Procurement Settings"
+                actions={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo(backPage)} leftIcon={<Icon id="arrow-left" />}>
+                        Back
+                    </Button>
+                }
+            />
 
-                <div className="bg-white p-6 rounded-xl shadow-md space-y-6">
+            <div className="bg-surface p-6 rounded-panel shadow-card border border-line space-y-6">
                     <h2 className="text-base font-semibold text-gray-800 border-b pb-2">General</h2>
                     {Object.entries(SETTING_META).map(([key, meta]) => {
                         const value = getValue(key);
@@ -168,8 +171,8 @@ const ProcurementSettings = ({ navigateTo, currentUser }) => {
                     })}
                 </div>
 
-                {/* Vendor Scoring Weights Card */}
-                <div className="bg-white p-6 rounded-xl shadow-md space-y-4 mt-6">
+            {/* Vendor Scoring Weights Card */}
+            <div className="bg-surface p-6 rounded-panel shadow-card border border-line space-y-4 mt-6">
                     <div className="border-b pb-2">
                         <h2 className="text-base font-semibold text-gray-800">Vendor Scoring Weights</h2>
                         <p className="text-xs text-gray-500 mt-1">
@@ -232,21 +235,16 @@ const ProcurementSettings = ({ navigateTo, currentUser }) => {
                     })()}
                 </div>
 
-                <div className="flex justify-end mt-6">
-                    <button
-                        onClick={handleSave}
-                        disabled={Object.keys(dirty).length === 0 || saving}
-                        className={`px-6 py-2 rounded-md text-sm text-white ${
-                            Object.keys(dirty).length > 0 && !saving
-                                ? 'bg-blue-600 hover:bg-blue-700'
-                                : 'bg-gray-300 cursor-not-allowed'
-                        }`}
-                    >
-                        {saving ? 'Saving…' : 'Save All Settings'}
-                    </button>
-                </div>
+            <div className="flex justify-end mt-6">
+                <Button
+                    variant="primary"
+                    onClick={handleSave}
+                    disabled={Object.keys(dirty).length === 0 || saving}
+                >
+                    {saving ? 'Saving…' : 'Save All Settings'}
+                </Button>
             </div>
-        </div>
+        </>
     );
 };
 

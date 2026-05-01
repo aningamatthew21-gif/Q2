@@ -3,6 +3,8 @@ import api from '../api';
 import { useRealtimeInventory } from '../hooks/useRealtimeInventory';
 import { useRealtimeCustomers } from '../hooks/useRealtimeCustomers';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import PreviewModal from '../components/PreviewModal';
 import QuantityModal from '../components/modals/QuantityModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
@@ -471,13 +473,17 @@ const QuotingModule = ({ navigateTo, userId }) => {
     // const formatCurrency = (currency, amount) => { return new Intl.NumberFormat('en-GH', { style: 'currency', currency: currency }).format(amount); };
 
     return (
-        <div className="min-h-screen bg-gray-100 p-4 md:p-8">
-            <div className="max-w-7xl mx-auto">
-                {notification && (<div className={`mb-6 p-4 rounded-md ${notification.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>{notification.message}</div>)}
-                <header className="flex justify-between items-center mb-8">
-                    <div><h1 className="text-3xl font-bold text-gray-800">New Quote</h1><p className="text-gray-600">Create a new sales quote for approval</p></div>
-                    <button onClick={() => navigateTo('salesDashboard')} className="text-gray-600 hover:text-gray-900"><Icon id="times" className="mr-1" /> Cancel</button>
-                </header>
+        <>
+            {notification && (<div className={`mb-6 p-4 rounded-md ${notification.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>{notification.message}</div>)}
+            <PageHeader
+                title="New Quote"
+                subtitle="Create a new sales quote for approval"
+                actions={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo('salesDashboard')} leftIcon={<Icon id="times" />}>
+                        Cancel
+                    </Button>
+                }
+            />
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-140px)]">
                     <div className="lg:col-span-1 space-y-6">
                         <div className="bg-white p-6 rounded-xl shadow-md flex flex-col">
@@ -564,7 +570,6 @@ const QuotingModule = ({ navigateTo, userId }) => {
                         </div>
                     </div>
                 </div>
-            </div>
             {addingItem && (<QuantityModal item={addingItem} onClose={() => setAddingItem(null)} onConfirm={handleConfirmAddItem} />)}
             {removingItem && (<ConfirmationModal title="Remove Item" message={`Are you sure you want to remove "${removingItem.name}" from the quote?`} onConfirm={handleConfirmRemoveItem} onCancel={() => setRemovingItem(null)} confirmText="Remove" confirmColor="bg-red-600 hover:bg-red-700" />)}
             {isPreviewOpen && pendingInvoicePayload && (<PreviewModal open={isPreviewOpen} payload={pendingInvoicePayload} mode="invoice" onClose={() => setIsPreviewOpen(false)} onConfirm={async () => { setIsPreviewOpen(false); await handleSubmitForApproval(); }} />)}
@@ -621,7 +626,7 @@ const QuotingModule = ({ navigateTo, userId }) => {
                     {!isAiChatOpen && chatHistory.length > 0 && (<span className="absolute top-0 right-0 w-4 h-4 bg-red-500 border-2 border-white rounded-full"></span>)}
                 </button>
             </div>
-        </div>
+        </>
     );
 };
 

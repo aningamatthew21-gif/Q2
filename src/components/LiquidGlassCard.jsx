@@ -1,56 +1,60 @@
-import React, { useEffect, useRef, useState } from 'react';
+/**
+ * LiquidGlassCard — backward-compat shim.
+ *
+ * This component used to implement its own backdrop-filter + sheen.
+ * That behavior now lives in `src/components/common/GlassSurface.jsx`,
+ * which is Tailwind-token based and shared across the sidebar and
+ * all modals (Apple-style unified glass language).
+ *
+ * Existing call sites (currently only LoginScreen.jsx) keep working
+ * because this file simply re-exports GlassSurface with prop
+ * translation:
+ *
+ *   <LiquidGlassCard radius={24} blur={14} tint="rgba(...)">
+ *      ↓
+ *   <GlassSurface radius="glass" tint="default" interactive>
+ *
+ * Phase F will migrate LoginScreen directly to GlassSurface and this
+ * shim can be deleted in a future cleanup sprint. For now it exists
+ * solely so Phase A is non-breaking.
+ */
+import React from 'react';
+import GlassSurface from './common/GlassSurface';
 
-// Liquid glass card with backdrop blur, tint, breathing animation and mouse-follow sheen
-export default function LiquidGlassCard({ className = '', children, radius = 24, blur = 14, tint = 'rgba(255,255,255,0.06)' }) {
-  const [mouse, setMouse] = useState({ x: 50, y: 50 });
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const onMove = (e) => {
-      if (!ref.current) return;
-      const r = ref.current.getBoundingClientRect();
-      const x = ((e.clientX - r.left) / r.width) * 100;
-      const y = ((e.clientY - r.top) / r.height) * 100;
-      setMouse({ x, y });
-    };
-    window.addEventListener('mousemove', onMove);
-    return () => window.removeEventListener('mousemove', onMove);
-  }, []);
-
-  const fluidCss = `
-  @keyframes breathLg {
-    0%,100% { transform: scale(1); box-shadow: 0 14px 40px -10px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.18); }
-    50% { transform: scale(1.005); box-shadow: 0 18px 56px -12px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.26); }
-  }
-  .liquid-glass-card { 
-    animation: breathLg 7s ease-in-out infinite alternate;
-    backdrop-filter: blur(${blur}px) saturate(180%);
-    -webkit-backdrop-filter: blur(${blur}px) saturate(180%);
-    border: 1px solid rgba(255,255,255,0.28);
-    background: ${tint};
-    position: relative;
-  }
-  .glass-sheen { 
-    background: radial-gradient(circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,0.35) 0%, transparent 28%);
-    opacity: .9; pointer-events: none;
-  }
-  `;
-
-  return (
-    <div className={className}>
-      <style dangerouslySetInnerHTML={{ __html: fluidCss }} />
-      <div
-        ref={ref}
-        className="liquid-glass-card rounded-3xl shadow-xl overflow-hidden relative"
-        style={{ '--mx': `${mouse.x}%`, '--my': `${mouse.y}%` }}
-      >
-        <div className="glass-sheen absolute inset-0 rounded-3xl" />
-        <div className="relative z-10">
-          {children}
-        </div>
-      </div>
-    </div>
-  );
+// Map legacy `tint` (rgba string) to the new enum. Anything with
+// visible alpha gets 'default'; nearly-opaque gets 'strong'; fully
+// transparent gets 'none'. Good enough for the one caller we have.
+function translateTint(legacyTint) {
+  if (!legacyTint || typeof legacyTint !== 'string') return 'default';
+  const m = legacyTint.match(/rgba?\([^)]*,\s*([0-9.]+)\s*\)/i);
+  if (!m) return 'default';
+  const alpha = Number(m[1]);
+  if (isNaN(alpha)) return 'default';
+  if (alpha <= 0.02) return 'none';
+  if (alpha >= 0.45) return 'strong';
+  return 'default';
 }
 
-
+export default function LiquidGlassCard({
+  className = '',
+  children,
+  radius,      // legacy number in px — ignored; GlassSurface uses token radii
+  blur,        // legacy number in px — ignored; GlassSurface uses --blur-glass
+  tint,        // legacy rgba string   — translated to GlassSurface enum
+  ...rest
+}) {
+  // Preserve original behavior: sheen was always on, so mark
+  // interactive=true.
+  return (
+    <GlassSurface
+      tint={translateTint(tint)}
+      radius="glass"
+      interactive
+      padding="p-0"
+      className={className}
+      {...rest}
+    >
+      {children}
+    </GlassSurface>
+  );
+}

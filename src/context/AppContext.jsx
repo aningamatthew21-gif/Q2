@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import GlobalStaleCheck from '../components/GlobalStaleCheck';
 import { logActivity } from '../utils/logger';
 import api from '../api';
+import AppLayout from '../components/layout/AppLayout';
 
 // Import all page components
 import LoginScreen from '../pages/LoginScreen';
@@ -377,9 +378,13 @@ export const AppProvider = ({ children }) => {
         }
     };
 
+    // Pages that render OUTSIDE the app chrome (sidebar + layout).
+    // Login is pre-auth; customerPortal is a public deep-link view.
+    const isChromeless = page === 'login' || page === 'customerPortal' || isLoading || !appUser;
+
     return (
         <AppContext.Provider value={value}>
-            {renderPage()}
+            {isChromeless ? renderPage() : <AppLayout>{renderPage()}</AppLayout>}
             <GlobalStaleCheck />
         </AppContext.Provider>
     );

@@ -1,4 +1,9 @@
 import React, { useState } from 'react';
+import GlassModal from '../common/GlassModal';
+import Button from '../common/Button';
+
+const INPUT_CLASS = 'mt-1 w-full p-2 border border-line rounded-card focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface';
+const LABEL_CLASS = 'text-sm font-medium text-ink-muted';
 
 const CustomerModal = ({ customer, onSave, onClose }) => {
     const [formData, setFormData] = useState(customer || {
@@ -20,46 +25,53 @@ const CustomerModal = ({ customer, onSave, onClose }) => {
     const handleSave = () => {
         onSave({ ...formData, id: customer?.id });
     };
+
+    const footer = (
+        <>
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={handleSave}>Save Customer</Button>
+        </>
+    );
+
     return (
-        <div className="fixed inset-0 backdrop-blur bg-opacity-50 flex justify-center items-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl">
-                <h2 className="text-2xl font-bold text-gray-800 mb-6">{customer ? 'Edit Customer' : 'Add New Customer'}</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2">
-                        <label className="text-sm font-medium text-gray-700">Customer Name</label>
-                        <input type="text" name="name" value={formData.name} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md" />
-                    </div>
-                    <div>
-                        <label className="text-sm font-medium text-gray-700">Contact Person</label>
-                        <input type="text" name="contactPerson" value={formData.contactPerson} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md" />
-                    </div>
-                    <div>
-                        <label className="text-sm font-medium text-gray-700">Contact Email</label>
-                        <input type="email" name="contactEmail" value={formData.contactEmail} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md" />
-                    </div>
-                    <div>
-                        <label className="text-sm font-medium text-gray-700">Location</label>
-                        <input type="text" name="location" value={formData.location} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md" />
-                    </div>
-                    <div>
-                        <label className="text-sm font-medium text-gray-700">P.O. Box</label>
-                        <input type="text" name="poBox" value={formData.poBox} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md" />
-                    </div>
-                    <div>
-                        <label className="text-sm font-medium text-gray-700">Region</label>
-                        <input type="text" name="region" value={formData.region} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md" />
-                    </div>
-                    <div className="md:col-span-2">
-                        <label className="text-sm font-medium text-gray-700">Address</label>
-                        <input type="text" name="address" value={formData.address} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md" />
-                    </div>
+        <GlassModal
+            open
+            onClose={onClose}
+            title={customer ? 'Edit Customer' : 'Add New Customer'}
+            size="lg"
+            footer={footer}
+        >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                    <label className={LABEL_CLASS}>Customer Name</label>
+                    <input type="text" name="name" value={formData.name} onChange={handleChange} className={INPUT_CLASS} />
                 </div>
-                <div className="mt-8 flex justify-end space-x-4">
-                    <button onClick={onClose} className="py-2 px-4 border rounded-md">Cancel</button>
-                    <button onClick={handleSave} className="py-2 px-4 text-white bg-blue-600 rounded-md">Save Customer</button>
+                <div>
+                    <label className={LABEL_CLASS}>Contact Person</label>
+                    <input type="text" name="contactPerson" value={formData.contactPerson} onChange={handleChange} className={INPUT_CLASS} />
+                </div>
+                <div>
+                    <label className={LABEL_CLASS}>Contact Email</label>
+                    <input type="email" name="contactEmail" value={formData.contactEmail} onChange={handleChange} className={INPUT_CLASS} />
+                </div>
+                <div>
+                    <label className={LABEL_CLASS}>Location</label>
+                    <input type="text" name="location" value={formData.location} onChange={handleChange} className={INPUT_CLASS} />
+                </div>
+                <div>
+                    <label className={LABEL_CLASS}>P.O. Box</label>
+                    <input type="text" name="poBox" value={formData.poBox} onChange={handleChange} className={INPUT_CLASS} />
+                </div>
+                <div>
+                    <label className={LABEL_CLASS}>Region</label>
+                    <input type="text" name="region" value={formData.region} onChange={handleChange} className={INPUT_CLASS} />
+                </div>
+                <div className="md:col-span-2">
+                    <label className={LABEL_CLASS}>Address</label>
+                    <input type="text" name="address" value={formData.address} onChange={handleChange} className={INPUT_CLASS} />
                 </div>
             </div>
-        </div>
+        </GlassModal>
     );
 };
 

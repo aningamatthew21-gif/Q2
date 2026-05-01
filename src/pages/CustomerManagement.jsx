@@ -1,6 +1,8 @@
 import React, { useState, useRef, useMemo } from 'react';
 import api from '../api';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import CustomerModal from '../components/modals/CustomerModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
@@ -200,90 +202,90 @@ const CustomerManagement = ({ navigateTo, userId }) => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
-                {isModalOpen && <CustomerModal customer={editingCustomer} onSave={handleSaveCustomer} onClose={handleCloseModal} />}
-                {pendingImport && <ConfirmationModal title="Confirm Import" message={`Found ${pendingImport.length} customers. This will update existing and add new ones.`} onConfirm={handleConfirmImport} onCancel={() => setPendingImport(null)} confirmText="Update & Add" confirmColor="bg-blue-600" />}
-                {deletingCustomer && <ConfirmationModal title="Confirm Delete" message={`Are you sure you want to delete customer "${deletingCustomer.name}"? This action cannot be undone.`} onConfirm={() => handleDeleteCustomer(deletingCustomer)} onCancel={() => setDeletingCustomer(null)} confirmText="Delete" confirmColor="bg-red-600" />}
+        <>
+            {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
+            {isModalOpen && <CustomerModal customer={editingCustomer} onSave={handleSaveCustomer} onClose={handleCloseModal} />}
+            {pendingImport && <ConfirmationModal title="Confirm Import" message={`Found ${pendingImport.length} customers. This will update existing and add new ones.`} onConfirm={handleConfirmImport} onCancel={() => setPendingImport(null)} confirmText="Update & Add" confirmColor="bg-blue-600" />}
+            {deletingCustomer && <ConfirmationModal title="Confirm Delete" message={`Are you sure you want to delete customer "${deletingCustomer.name}"? This action cannot be undone.`} onConfirm={() => handleDeleteCustomer(deletingCustomer)} onCancel={() => setDeletingCustomer(null)} confirmText="Delete" confirmColor="bg-red-600" />}
 
-                <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold">Customer Management</h1>
-                    <button onClick={() => navigateTo('controllerDashboard')} className="text-sm">
-                        <Icon id="arrow-left" className="mr-1" /> Back
-                    </button>
-                </header>
+            <PageHeader
+                title="Customer Management"
+                actions={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo('controllerDashboard')} leftIcon={<Icon id="arrow-left" />}>
+                        Back
+                    </Button>
+                }
+            />
 
-                <div className="bg-white p-6 rounded-xl shadow-md">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-semibold">All Customers</h2>
-                        <div className="flex items-center space-x-2">
-                            <input type="file" ref={fileInputRef} onChange={handleFileImport} className="hidden" accept=".csv" />
-                            <button onClick={handleImportClick} className="py-2 px-4 border rounded-md text-sm">Import</button>
-                            <button onClick={handleExportToCSV} className="py-2 px-4 border rounded-md text-sm">Export</button>
-                            <button onClick={() => invalidateCache('customers')} className="py-2 px-4 border rounded-md text-sm hover:bg-gray-50" title="Refresh customer data">
-                                <Icon id="sync-alt" className="mr-1" />Refresh
-                            </button>
-                            <button onClick={() => handleOpenModal()} className="py-2 px-4 text-white bg-blue-600 rounded-md text-sm">
-                                <Icon id="plus" className="mr-2" />Add New
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Search Bar */}
-                    <div className="mb-4">
-                        <input
-                            type="text"
-                            placeholder="Search customers by name, contact, email, or ID..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        {searchTerm && (
-                            <div className="mt-2 text-sm text-gray-600">
-                                Showing {filteredCustomers.length} of {customers.length} customers
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="overflow-x-auto">
-                        {customersLoading ? (
-                            <div className="text-center py-8">
-                                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                                <p className="mt-2 text-gray-600">Loading customers...</p>
-                            </div>
-                        ) : (
-                            <table className="w-full text-left">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="p-3 font-semibold">ID</th>
-                                        <th className="p-3 font-semibold">Name</th>
-                                        <th className="p-3 font-semibold">Contact</th>
-                                        <th className="p-3 font-semibold">Email</th>
-                                        <th className="p-3 font-semibold text-center">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredCustomers.map(c => (
-                                        <tr key={c.id} className="border-b hover:bg-gray-50">
-                                            <td className="p-3 text-xs">{c.id}</td>
-                                            <td className="p-3 font-medium">{c.name}</td>
-                                            <td className="p-3">{c.contactPerson}</td>
-                                            <td className="p-3">{c.contactEmail}</td>
-                                            <td className="p-3 text-center space-x-4">
-                                                <button onClick={() => navigateTo('customerPortal', c.id)} className="text-green-600 font-medium">View Portal</button>
-                                                <button onClick={() => handleOpenModal(c)} className="text-blue-600 font-medium">Edit</button>
-                                                <button onClick={() => setDeletingCustomer(c)} className="text-red-600 font-medium">Delete</button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
+            <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold text-ink">All Customers</h2>
+                    <div className="flex items-center space-x-2">
+                        <input type="file" ref={fileInputRef} onChange={handleFileImport} className="hidden" accept=".csv" />
+                        <Button variant="secondary" size="sm" onClick={handleImportClick}>Import</Button>
+                        <Button variant="secondary" size="sm" onClick={handleExportToCSV}>Export</Button>
+                        <Button variant="secondary" size="sm" onClick={() => invalidateCache('customers')} leftIcon={<Icon id="sync-alt" />} title="Refresh customer data">
+                            Refresh
+                        </Button>
+                        <Button variant="primary" size="sm" onClick={() => handleOpenModal()} leftIcon={<Icon id="plus" />}>
+                            Add New
+                        </Button>
                     </div>
                 </div>
+
+                {/* Search Bar */}
+                <div className="mb-4">
+                    <input
+                        type="text"
+                        placeholder="Search customers by name, contact, email, or ID..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full p-3 border border-line rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    />
+                    {searchTerm && (
+                        <div className="mt-2 text-sm text-ink-muted">
+                            Showing {filteredCustomers.length} of {customers.length} customers
+                        </div>
+                    )}
+                </div>
+
+                <div className="overflow-x-auto">
+                    {customersLoading ? (
+                        <div className="text-center py-8">
+                            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                            <p className="mt-2 text-ink-muted">Loading customers...</p>
+                        </div>
+                    ) : (
+                        <table className="w-full text-left">
+                            <thead className="bg-surface-sunken">
+                                <tr>
+                                    <th className="p-3 font-semibold">ID</th>
+                                    <th className="p-3 font-semibold">Name</th>
+                                    <th className="p-3 font-semibold">Contact</th>
+                                    <th className="p-3 font-semibold">Email</th>
+                                    <th className="p-3 font-semibold text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredCustomers.map(c => (
+                                    <tr key={c.id} className="border-b hover:bg-surface-sunken">
+                                        <td className="p-3 text-xs">{c.id}</td>
+                                        <td className="p-3 font-medium">{c.name}</td>
+                                        <td className="p-3">{c.contactPerson}</td>
+                                        <td className="p-3">{c.contactEmail}</td>
+                                        <td className="p-3 text-center space-x-4">
+                                            <button onClick={() => navigateTo('customerPortal', c.id)} className="text-green-600 font-medium">View Portal</button>
+                                            <button onClick={() => handleOpenModal(c)} className="text-blue-600 font-medium">Edit</button>
+                                            <button onClick={() => setDeletingCustomer(c)} className="text-red-600 font-medium">Delete</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
             </div>
-        </div>
+        </>
     );
 };
 

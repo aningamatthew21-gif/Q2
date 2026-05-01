@@ -1,4 +1,9 @@
 import React, { useState, useMemo } from 'react';
+import GlassModal from '../common/GlassModal';
+import Button from '../common/Button';
+
+const INPUT_CLASS = 'p-1.5 border border-line rounded-card text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface';
+const INPUT_CLASS_WIDE = 'w-full p-2 border border-line rounded-card text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface';
 
 /**
  * LogVendorResponseModal
@@ -70,149 +75,144 @@ const LogVendorResponseModal = ({ rfq, vendor, onSave, onCancel, defaultPrId }) 
         }
     };
 
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto">
-                {/* Header */}
-                <div className="p-5 border-b sticky top-0 bg-white z-10">
-                    <h2 className="text-xl font-semibold">Log Vendor Response</h2>
-                    <p className="text-sm text-gray-500 mt-0.5">
-                        <strong>{vendor.vendorName}</strong> &middot; RFQ {rfq.rfqNumber} &middot; {rfq.lineItems.length} line item(s)
-                    </p>
-                    <p className="text-xs text-blue-600 mt-1">Enter unit costs for each item below. Leave blank to skip items the vendor didn't quote on.</p>
-                </div>
-
-                <div className="p-5 space-y-5">
-                    {/* Per-line pricing table */}
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead className="bg-gray-50 border-b">
-                                <tr>
-                                    <th className="p-2 text-left text-xs text-gray-500 font-medium">Item</th>
-                                    <th className="p-2 text-center text-xs text-gray-500 font-medium">Qty</th>
-                                    <th className="p-2 text-left text-xs text-gray-500 font-medium">Unit Cost ({rfq.currency || 'GHS'}) *</th>
-                                    <th className="p-2 text-left text-xs text-gray-500 font-medium">Freight</th>
-                                    <th className="p-2 text-left text-xs text-gray-500 font-medium">Lead (days)</th>
-                                    <th className="p-2 text-right text-xs text-gray-500 font-medium">Line Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {lines.map(l => {
-                                    const lineTotal = (Number(l.unitCost || 0) * l.quantity) + Number(l.freight || 0);
-                                    const hasValue = Number(l.unitCost) > 0;
-                                    return (
-                                        <tr key={l.prId} className={`border-b ${hasValue ? 'bg-green-50' : ''}`}>
-                                            <td className="p-2">
-                                                <div className="font-medium">{l.itemName}</div>
-                                                <div className="text-xs text-gray-400">{l.prNumber}</div>
-                                            </td>
-                                            <td className="p-2 text-center text-gray-600">{l.quantity} {l.uom}</td>
-                                            <td className="p-2">
-                                                <input
-                                                    type="number" step="0.01" min="0"
-                                                    value={l.unitCost}
-                                                    onChange={e => updateLine(l.prId, 'unitCost', e.target.value)}
-                                                    placeholder="0.00"
-                                                    className="w-28 p-1.5 border rounded text-sm focus:ring-1 focus:ring-blue-400"
-                                                />
-                                            </td>
-                                            <td className="p-2">
-                                                <input
-                                                    type="number" step="0.01" min="0"
-                                                    value={l.freight}
-                                                    onChange={e => updateLine(l.prId, 'freight', e.target.value)}
-                                                    placeholder="0.00"
-                                                    className="w-24 p-1.5 border rounded text-sm"
-                                                />
-                                            </td>
-                                            <td className="p-2">
-                                                <input
-                                                    type="number" min="0"
-                                                    value={l.leadTimeDays}
-                                                    onChange={e => updateLine(l.prId, 'leadTimeDays', e.target.value)}
-                                                    placeholder="0"
-                                                    className="w-20 p-1.5 border rounded text-sm"
-                                                />
-                                            </td>
-                                            <td className="p-2 text-right font-medium">
-                                                {hasValue ? `${rfq.currency || 'GHS'} ${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                            <tfoot className="bg-gray-50">
-                                <tr>
-                                    <td colSpan={5} className="p-2 text-sm font-semibold text-right text-gray-700">
-                                        Grand Total ({filledLines.length}/{lines.length} items quoted):
-                                    </td>
-                                    <td className="p-2 text-right font-bold text-blue-700">
-                                        {rfq.currency || 'GHS'} {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                    </td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-
-                    {/* Shared fields */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1">Delivery Terms</label>
-                            <input type="text" value={deliveryTerms} onChange={e => setDeliveryTerms(e.target.value)}
-                                placeholder="e.g. CIF Tema" className="w-full p-2 border rounded text-sm" />
-                        </div>
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1">Payment Terms</label>
-                            <input type="text" value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)}
-                                placeholder="e.g. Net 30" className="w-full p-2 border rounded text-sm" />
-                        </div>
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1">Validity (days)</label>
-                            <input type="number" min="0" value={validityDays} onChange={e => setValidityDays(e.target.value)}
-                                className="w-full p-2 border rounded text-sm" />
-                        </div>
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1">Received Date</label>
-                            <input type="date" value={receivedDate} onChange={e => setReceivedDate(e.target.value)}
-                                className="w-full p-2 border rounded text-sm" />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-1">Notes (applies to all items)</label>
-                        <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
-                            className="w-full p-2 border rounded text-sm" placeholder="Any vendor comments or conditions..." />
-                    </div>
-
-                    {submitting && savedCount > 0 && (
-                        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-700">
-                            Saving... {savedCount}/{filledLines.length} responses logged.
-                        </div>
-                    )}
-                </div>
-
-                {/* Footer */}
-                <div className="p-5 border-t flex justify-between items-center sticky bottom-0 bg-white">
-                    <p className="text-xs text-gray-500">
-                        {filledLines.length} of {lines.length} items will be saved
-                    </p>
-                    <div className="flex gap-3">
-                        <button onClick={onCancel} className="px-4 py-2 border rounded text-sm text-gray-600 hover:bg-gray-50">
-                            Cancel
-                        </button>
-                        <button
-                            onClick={handleSave}
-                            disabled={!canSave || submitting}
-                            className={`px-5 py-2 rounded text-sm text-white font-medium ${
-                                canSave && !submitting ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'
-                            }`}
-                        >
-                            {submitting ? `Saving ${savedCount}/${filledLines.length}…` : `Save ${filledLines.length} Response(s)`}
-                        </button>
-                    </div>
-                </div>
+    const footer = (
+        <div className="flex justify-between items-center w-full">
+            <p className="text-xs text-ink-muted">
+                {filledLines.length} of {lines.length} items will be saved
+            </p>
+            <div className="flex gap-3">
+                <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+                <Button
+                    variant="primary"
+                    onClick={handleSave}
+                    disabled={!canSave || submitting}
+                >
+                    {submitting ? `Saving ${savedCount}/${filledLines.length}…` : `Save ${filledLines.length} Response(s)`}
+                </Button>
             </div>
         </div>
+    );
+
+    return (
+        <GlassModal
+            open
+            onClose={onCancel}
+            title="Log Vendor Response"
+            description={<><strong className="text-ink">{vendor.vendorName}</strong> &middot; RFQ {rfq.rfqNumber} &middot; {rfq.lineItems.length} line item(s)</>}
+            size="xl"
+            footer={footer}
+        >
+            <p className="text-xs text-info mb-3">Enter unit costs for each item below. Leave blank to skip items the vendor didn't quote on.</p>
+
+            <div className="space-y-5">
+                {/* Per-line pricing table */}
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead className="bg-surface-sunken border-b border-line">
+                            <tr>
+                                <th className="p-2 text-left text-xs text-ink-muted font-medium">Item</th>
+                                <th className="p-2 text-center text-xs text-ink-muted font-medium">Qty</th>
+                                <th className="p-2 text-left text-xs text-ink-muted font-medium">Unit Cost ({rfq.currency || 'GHS'}) *</th>
+                                <th className="p-2 text-left text-xs text-ink-muted font-medium">Freight</th>
+                                <th className="p-2 text-left text-xs text-ink-muted font-medium">Lead (days)</th>
+                                <th className="p-2 text-right text-xs text-ink-muted font-medium">Line Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {lines.map(l => {
+                                const lineTotal = (Number(l.unitCost || 0) * l.quantity) + Number(l.freight || 0);
+                                const hasValue = Number(l.unitCost) > 0;
+                                return (
+                                    <tr key={l.prId} className={`border-b border-line ${hasValue ? 'bg-success-soft' : ''}`}>
+                                        <td className="p-2">
+                                            <div className="font-medium text-ink">{l.itemName}</div>
+                                            <div className="text-xs text-ink-subtle">{l.prNumber}</div>
+                                        </td>
+                                        <td className="p-2 text-center text-ink-muted">{l.quantity} {l.uom}</td>
+                                        <td className="p-2">
+                                            <input
+                                                type="number" step="0.01" min="0"
+                                                value={l.unitCost}
+                                                onChange={e => updateLine(l.prId, 'unitCost', e.target.value)}
+                                                placeholder="0.00"
+                                                className={`w-28 ${INPUT_CLASS}`}
+                                            />
+                                        </td>
+                                        <td className="p-2">
+                                            <input
+                                                type="number" step="0.01" min="0"
+                                                value={l.freight}
+                                                onChange={e => updateLine(l.prId, 'freight', e.target.value)}
+                                                placeholder="0.00"
+                                                className={`w-24 ${INPUT_CLASS}`}
+                                            />
+                                        </td>
+                                        <td className="p-2">
+                                            <input
+                                                type="number" min="0"
+                                                value={l.leadTimeDays}
+                                                onChange={e => updateLine(l.prId, 'leadTimeDays', e.target.value)}
+                                                placeholder="0"
+                                                className={`w-20 ${INPUT_CLASS}`}
+                                            />
+                                        </td>
+                                        <td className="p-2 text-right font-medium text-ink">
+                                            {hasValue ? `${rfq.currency || 'GHS'} ${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                        <tfoot className="bg-surface-sunken">
+                            <tr>
+                                <td colSpan={5} className="p-2 text-sm font-semibold text-right text-ink">
+                                    Grand Total ({filledLines.length}/{lines.length} items quoted):
+                                </td>
+                                <td className="p-2 text-right font-bold text-primary">
+                                    {rfq.currency || 'GHS'} {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                {/* Shared fields */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                        <label className="block text-xs text-ink-muted mb-1">Delivery Terms</label>
+                        <input type="text" value={deliveryTerms} onChange={e => setDeliveryTerms(e.target.value)}
+                            placeholder="e.g. CIF Tema" className={INPUT_CLASS_WIDE} />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-ink-muted mb-1">Payment Terms</label>
+                        <input type="text" value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)}
+                            placeholder="e.g. Net 30" className={INPUT_CLASS_WIDE} />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-ink-muted mb-1">Validity (days)</label>
+                        <input type="number" min="0" value={validityDays} onChange={e => setValidityDays(e.target.value)}
+                            className={INPUT_CLASS_WIDE} />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-ink-muted mb-1">Received Date</label>
+                        <input type="date" value={receivedDate} onChange={e => setReceivedDate(e.target.value)}
+                            className={INPUT_CLASS_WIDE} />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="block text-xs text-ink-muted mb-1">Notes (applies to all items)</label>
+                    <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
+                        className={INPUT_CLASS_WIDE} placeholder="Any vendor comments or conditions..." />
+                </div>
+
+                {submitting && savedCount > 0 && (
+                    <div className="bg-info-soft border border-info/30 rounded-card p-3 text-sm text-info">
+                        Saving... {savedCount}/{filledLines.length} responses logged.
+                    </div>
+                )}
+            </div>
+        </GlassModal>
     );
 };
 

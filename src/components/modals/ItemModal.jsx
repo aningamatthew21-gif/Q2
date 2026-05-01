@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
+import GlassModal from '../common/GlassModal';
+import Button from '../common/Button';
 
 const ITEM_TYPES = ['Hardware', 'Software', 'Service'];
 const CURRENCIES = ['USD', 'GHS', 'EUR', 'GBP'];
+
+const INPUT_CLASS = 'mt-1 w-full p-2 border border-line rounded-card focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface';
+const LABEL_CLASS = 'text-sm font-medium text-ink-muted';
 
 const ItemModal = ({ item, onSave, onClose }) => {
     const [formData, setFormData] = useState(item || {
@@ -36,101 +41,105 @@ const ItemModal = ({ item, onSave, onClose }) => {
         onSave(cleanData);
     };
 
+    const footer = (
+        <>
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={handleSave}>Save Item</Button>
+        </>
+    );
+
     return (
-        <div className="fixed inset-0 bg-opacity-50 backdrop-blur flex justify-center items-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-lg">
-                <h2 className="text-2xl font-bold text-gray-800 mb-6">{item ? 'Edit Item' : 'Add New Item'}</h2>
-                <div className="space-y-4">
+        <GlassModal
+            open
+            onClose={onClose}
+            title={item ? 'Edit Item' : 'Add New Item'}
+            size="md"
+            footer={footer}
+        >
+            <div className="space-y-4">
+                <div>
+                    <label className={LABEL_CLASS}>Item Name</label>
+                    <input type="text" name="name" value={formData.name} onChange={handleChange} className={INPUT_CLASS} />
+                </div>
+                <div>
+                    <label className={LABEL_CLASS}>Vendor</label>
+                    <input type="text" name="vendor" value={formData.vendor} onChange={handleChange} className={INPUT_CLASS} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                     <div>
-                        <label className="text-sm font-medium text-gray-700">Item Name</label>
-                        <input type="text" name="name" value={formData.name} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500" />
+                        <label className={LABEL_CLASS}>Item Type</label>
+                        <select name="itemType" value={formData.itemType || 'Hardware'} onChange={handleChange} className={INPUT_CLASS}>
+                            {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
                     </div>
                     <div>
-                        <label className="text-sm font-medium text-gray-700">Vendor</label>
-                        <input type="text" name="vendor" value={formData.vendor} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500" />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-sm font-medium text-gray-700">Item Type</label>
-                            <select name="itemType" value={formData.itemType || 'Hardware'} onChange={handleChange}
-                                className="mt-1 w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
-                                {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-sm font-medium text-gray-700">Currency</label>
-                            <select name="currency" value={formData.currency || 'GHS'} onChange={handleChange}
-                                className="mt-1 w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
-                                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-sm font-medium text-gray-700">Price ({formData.currency || 'GHS'})</label>
-                            <input
-                                type="number"
-                                name="price"
-                                value={formData.price}
-                                onChange={handleChange}
-                                className="mt-1 w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-                                min="0"
-                                step="0.01"
-                                onKeyDown={(e) => ['-', 'e'].includes(e.key) && e.preventDefault()}
-                            />
-                        </div>
-                        <div>
-                            <label className="text-sm font-medium text-gray-700">Weight (kg)</label>
-                            <input
-                                type="number"
-                                name="weightKg"
-                                value={formData.weightKg || 0}
-                                onChange={handleChange}
-                                className="mt-1 w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-                                min="0"
-                                step="0.1"
-                                onKeyDown={(e) => ['-', 'e'].includes(e.key) && e.preventDefault()}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-sm font-medium text-gray-700">Stock</label>
-                            <input
-                                type="number"
-                                name="stock"
-                                value={formData.stock}
-                                onChange={handleChange}
-                                className="mt-1 w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-                                min="0"
-                                step="1"
-                                onKeyDown={(e) => ['-', '.', 'e'].includes(e.key) && e.preventDefault()}
-                            />
-                        </div>
-                        <div>
-                            <label className="text-sm font-medium text-gray-700">Restock At</label>
-                            <input
-                                type="number"
-                                name="restockLimit"
-                                value={formData.restockLimit}
-                                onChange={handleChange}
-                                className="mt-1 w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-                                min="0"
-                                step="1"
-                                onKeyDown={(e) => ['-', '.', 'e'].includes(e.key) && e.preventDefault()}
-                            />
-                        </div>
+                        <label className={LABEL_CLASS}>Currency</label>
+                        <select name="currency" value={formData.currency || 'GHS'} onChange={handleChange} className={INPUT_CLASS}>
+                            {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
                     </div>
                 </div>
-                <div className="mt-8 flex justify-end space-x-4">
-                    <button onClick={onClose} className="py-2 px-4 border rounded-md hover:bg-gray-50">Cancel</button>
-                    <button onClick={handleSave} className="py-2 px-4 text-white bg-blue-600 rounded-md hover:bg-blue-700">Save Item</button>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className={LABEL_CLASS}>Price ({formData.currency || 'GHS'})</label>
+                        <input
+                            type="number"
+                            name="price"
+                            value={formData.price}
+                            onChange={handleChange}
+                            className={INPUT_CLASS}
+                            min="0"
+                            step="0.01"
+                            onKeyDown={(e) => ['-', 'e'].includes(e.key) && e.preventDefault()}
+                        />
+                    </div>
+                    <div>
+                        <label className={LABEL_CLASS}>Weight (kg)</label>
+                        <input
+                            type="number"
+                            name="weightKg"
+                            value={formData.weightKg || 0}
+                            onChange={handleChange}
+                            className={INPUT_CLASS}
+                            min="0"
+                            step="0.1"
+                            onKeyDown={(e) => ['-', 'e'].includes(e.key) && e.preventDefault()}
+                        />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className={LABEL_CLASS}>Stock</label>
+                        <input
+                            type="number"
+                            name="stock"
+                            value={formData.stock}
+                            onChange={handleChange}
+                            className={INPUT_CLASS}
+                            min="0"
+                            step="1"
+                            onKeyDown={(e) => ['-', '.', 'e'].includes(e.key) && e.preventDefault()}
+                        />
+                    </div>
+                    <div>
+                        <label className={LABEL_CLASS}>Restock At</label>
+                        <input
+                            type="number"
+                            name="restockLimit"
+                            value={formData.restockLimit}
+                            onChange={handleChange}
+                            className={INPUT_CLASS}
+                            min="0"
+                            step="1"
+                            onKeyDown={(e) => ['-', '.', 'e'].includes(e.key) && e.preventDefault()}
+                        />
+                    </div>
                 </div>
             </div>
-        </div>
+        </GlassModal>
     );
 };
 

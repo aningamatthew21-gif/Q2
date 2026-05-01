@@ -1,11 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import companyLogo from '../assets/company-logo.png';
-import AnimatedBubbleParticles from '../components/AnimatedBubbleParticles.jsx';
-import LiquidGlassCard from '../components/LiquidGlassCard.jsx';
-import RippleButton from '../components/RippleButton.jsx';
+import GlassSurface from '../components/common/GlassSurface.jsx';
+import Button from '../components/common/Button.jsx';
 
+/**
+ * LoginScreen — pre-auth entry point.
+ *
+ * Styled with the same glass language as the rest of the app (GlassSurface
+ * + Inter + primary navy accents). AnimatedBubbleParticles was removed in
+ * favour of a subtle gradient canvas — the bubble backdrop competed with
+ * the glass card and felt playful in a way that clashed with the new
+ * enterprise-neutral direction. RippleButton was swapped for the shared
+ * Button primitive so login also benefits from the sound + haptic layer.
+ */
 const LoginScreen = ({ onLogin, onOTPLogin, companyName = 'MIDSA', onDiagnostic }) => {
-    const [role, setRole] = useState('sales');
     const [email, setEmail] = useState('');
     const [otpCode, setOtpCode] = useState('');
     const [hideSignInButton, setHideSignInButton] = useState(false);
@@ -16,23 +24,26 @@ const LoginScreen = ({ onLogin, onOTPLogin, companyName = 'MIDSA', onDiagnostic 
         console.log('🔍 [DEBUG] Company logo import:', companyLogo);
     }, [companyName]);
 
+    const inputClass =
+        'mt-1 block w-full px-3 py-2.5 text-sm bg-white/80 border border-line rounded-card ' +
+        'focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-ink-subtle';
+
     return (
-        <AnimatedBubbleParticles
-            background="linear-gradient(135deg, #0b5cff 0%, #ff2a2a 100%)"
-            bubbleColors={["#1f3bff", "#e02424"]}
-            bubbleSize={30}
-            spawnIntervalMs={150}
-            enableGoo={true}
-            blurStrength={12}
-            zIndex={0}
+        <div
+            className="min-h-screen flex items-center justify-center p-4"
+            style={{
+                background:
+                    'radial-gradient(1200px 600px at 10% 0%, #eef2f7 0%, transparent 60%),' +
+                    'radial-gradient(900px 500px at 90% 100%, #dce4ef 0%, transparent 60%),' +
+                    'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)'
+            }}
         >
-            <div className="max-w-md w-full mx-auto p-2">
-                <LiquidGlassCard>
+            <div className="max-w-md w-full">
+                <GlassSurface tint="strong" radius="glass" padding="p-0" interactive>
                     <div className="p-8">
                         <div className="text-center mb-8">
-                            {/* Company Logo */}
                             <div className="flex justify-center mb-6">
-                                <div className="bg-white rounded-xl p-4 sm:p-6 shadow-lg border border-gray-200 hover:shadow-xl transition-shadow duration-300">
+                                <div className="bg-white rounded-panel p-4 sm:p-6 shadow-card border border-line">
                                     {companyLogo ? (
                                         <img
                                             src={companyLogo}
@@ -48,40 +59,81 @@ const LoginScreen = ({ onLogin, onOTPLogin, companyName = 'MIDSA', onDiagnostic 
                                             }}
                                         />
                                     ) : null}
-                                    {/* Fallback text if logo fails to load or is not available */}
                                     <div
-                                        className={`text-center text-gray-600 font-semibold text-lg sm:text-xl ${companyLogo ? 'hidden' : 'block'}`}
+                                        className={`text-center text-ink-muted font-semibold text-lg sm:text-xl ${companyLogo ? 'hidden' : 'block'}`}
                                         style={companyLogo ? { display: 'none' } : {}}
                                     >
                                         {companyName}
                                     </div>
                                 </div>
                             </div>
-                            <h1 className="text-3xl font-bold text-gray-800">PROJECT QUOTE</h1>
-                            <p className="text-gray-500">Intelligent Operations System</p>
+                            <h1 className="text-2xl font-semibold text-ink tracking-tight">PROJECT QUOTE</h1>
+                            <p className="text-sm text-ink-muted mt-1">Intelligent Operations System</p>
                         </div>
-                        <div className="space-y-6">
-                            {/* <div><label className="block text-sm font-medium mb-4 text-gray-700">Sign in as</label><select value={role} onChange={e => setRole(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base outline border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"><option value="sales">Salesperson</option><option value="controller">Financial Controller</option></select></div> */}
-                            <div><label className="block text-sm font-medium mb-4 text-gray-700">Sign in with Email</label>  </div>
-                            <input type="text" value={email} onChange={e => setEmail(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base outline border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md" placeholder="Enter email" />
 
-                            {hideSignInButton && <input type="text" value={otpCode} onChange={e => setOtpCode(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base outline border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md" placeholder="Enter OTP" />}
-                            {hideSignInButton &&
-                                <RippleButton onClick={() => { onOTPLogin(otpCode); setHideSignInButton(false); }} className="w-full" bgColor="#ffffff" circleColor="#173eff">Proceed</RippleButton>}
-                            {!hideSignInButton &&
-                                <RippleButton onClick={() => { setHideSignInButton(true); onLogin(email) }} className="w-full" bgColor="#ffffff" circleColor="#173eff">Sign In</RippleButton>}
+                        <div className="space-y-5">
+                            <div>
+                                <label className="block text-sm font-medium text-ink mb-2">
+                                    Sign in with Email
+                                </label>
+                                <input
+                                    type="text"
+                                    value={email}
+                                    onChange={e => setEmail(e.target.value)}
+                                    className={inputClass}
+                                    placeholder="Enter email"
+                                />
+                            </div>
 
+                            {hideSignInButton && (
+                                <div>
+                                    <label className="block text-sm font-medium text-ink mb-2">
+                                        One-Time Code
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={otpCode}
+                                        onChange={e => setOtpCode(e.target.value)}
+                                        className={inputClass}
+                                        placeholder="Enter OTP"
+                                    />
+                                </div>
+                            )}
 
-                            {/* {onDiagnostic && (
-                        <div className="pt-4 border-t border-gray-200">
-                            <RippleButton onClick={onDiagnostic} className="w-full" bgColor="#ffffff" circleColor="#173eff">🔧 Database Diagnostic Tool</RippleButton>
-                        </div>
-                    )} */}
+                            {hideSignInButton ? (
+                                <Button
+                                    variant="primary"
+                                    fullWidth
+                                    onClick={() => { onOTPLogin(otpCode); setHideSignInButton(false); }}
+                                >
+                                    Proceed
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant="primary"
+                                    fullWidth
+                                    onClick={() => { setHideSignInButton(true); onLogin(email); }}
+                                >
+                                    Sign In
+                                </Button>
+                            )}
+
+                            {onDiagnostic && (
+                                <div className="pt-4 border-t border-line/60">
+                                    <Button
+                                        variant="secondary"
+                                        fullWidth
+                                        onClick={onDiagnostic}
+                                    >
+                                        🔧 Database Diagnostic Tool
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     </div>
-                </LiquidGlassCard>
+                </GlassSurface>
             </div>
-        </AnimatedBubbleParticles>
+        </div>
     );
 };
 

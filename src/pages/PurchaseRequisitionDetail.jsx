@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import socket from '../socket';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
 import { logActivity } from '../utils/logger';
@@ -116,38 +118,37 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600"></div>
+            <div className="flex items-center justify-center py-24">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-primary"></div>
             </div>
         );
     }
 
     if (error || !pr) {
         return (
-            <div className="min-h-screen bg-gray-100 p-8">
-                <p className="text-red-600">Error: {error || 'PR not found.'}</p>
-                <button onClick={() => navigateTo(backPage)} className="mt-4 text-blue-600">← Back</button>
+            <div className="py-8">
+                <p className="text-danger">Error: {error || 'PR not found.'}</p>
+                <Button variant="ghost" size="sm" onClick={() => navigateTo(backPage)} className="mt-4">← Back</Button>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-5xl mx-auto p-4 md:p-8">
-                {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
+        <>
+            {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
 
-                <header className="bg-white p-4 rounded-xl shadow-md mb-6 flex justify-between items-center">
-                    <div>
-                        <h1 className="text-2xl font-bold">{pr.prNumber || 'Purchase Requisition'}</h1>
-                        <p className="text-sm text-gray-500">Created {pr.createdAt ? new Date(pr.createdAt).toLocaleString() : '—'}</p>
-                    </div>
-                    <button onClick={() => navigateTo('purchaseRequisitions')} className="text-sm">
-                        <Icon id="arrow-left" className="mr-1" /> Back to list
-                    </button>
-                </header>
+            <PageHeader
+                title={pr.prNumber || 'Purchase Requisition'}
+                subtitle={`Created ${pr.createdAt ? new Date(pr.createdAt).toLocaleString() : '—'}`}
+                actions={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo('purchaseRequisitions')} leftIcon={<Icon id="arrow-left" />}>
+                        Back to list
+                    </Button>
+                }
+            />
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-md">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 bg-surface p-6 rounded-panel shadow-card border border-line">
                         <h2 className="text-xl font-semibold mb-4">Item Details</h2>
                         <dl className="grid grid-cols-2 gap-y-3">
                             <dt className="text-sm font-medium text-gray-500">Item</dt>
@@ -209,7 +210,7 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
                     </div>
 
                     <div className="space-y-6">
-                        <div className="bg-white p-6 rounded-xl shadow-md">
+                        <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
                             <h3 className="font-semibold mb-3">Status</h3>
                             <StatusBadge value={pr.status} />
                             <h3 className="font-semibold mt-6 mb-2">Priority</h3>
@@ -230,7 +231,7 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
                         </div>
 
                         {canEdit && pr.status !== 'CANCELLED' && pr.status !== 'FULFILLED' && (
-                            <div className="bg-white p-6 rounded-xl shadow-md space-y-3">
+                            <div className="bg-surface p-6 rounded-panel shadow-card border border-line space-y-3">
                                 <h3 className="font-semibold mb-2">Actions</h3>
                                 {!pr.assignedTo && (
                                     <button onClick={handleAssignToMe} className="w-full py-2 px-4 bg-blue-600 text-white rounded-md text-sm">
@@ -257,7 +258,7 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
                         )}
 
                         {pr.events && pr.events.length > 0 && (
-                            <div className="bg-white p-6 rounded-xl shadow-md">
+                            <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
                                 <h3 className="font-semibold mb-3">History</h3>
                                 <ul className="text-xs space-y-2 max-h-64 overflow-y-auto">
                                     {pr.events.map(ev => (
@@ -271,9 +272,8 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
                             </div>
                         )}
                     </div>
-                </div>
             </div>
-        </div>
+        </>
     );
 };
 

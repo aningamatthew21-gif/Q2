@@ -1,17 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { PDFService } from '../../services/PDFService';
+import GlassModal from '../common/GlassModal';
+import Button from '../common/Button';
 
 /**
  * RFQPreviewModal — Multi-vendor RFQ PDF preview.
  *
- * Props:
- *   open          – boolean
- *   onClose       – () => void
- *   rfqData       – { rfqNumber, title, submissionDeadline, deliveryDeadline, currency, notes, lineItems[], vendors[] }
- *   onConfirmSend – () => Promise<void>   (creates the RFQ & sends emails)
- *   onSaveDraft   – () => Promise<void>   (creates the RFQ as draft)
- *
- * Generates one PDF per vendor, tabbed preview, individual download, bulk download, mailto per vendor.
+ * Uses GlassModal with `size="full"` to give this a workspace-grade
+ * footprint (this isn't a typical "moment" modal — it's a multi-pane
+ * PDF reviewer). All existing tabs + toolbar + footer actions stay.
  */
 export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend, onSaveDraft }) {
     const [loading, setLoading] = useState(false);
@@ -65,8 +62,6 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
                         },
                     };
                     const pdf = await PDFService.generateRFQPDF(vendorRfqData);
-                    // Use a Blob URL instead of a base64 data URI — required by
-                    // Chromium-based browsers which block data: URIs in iframes.
                     const arrayBuffer = pdf.output('arraybuffer');
                     const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
                     const blobUrl = URL.createObjectURL(blob);
@@ -89,23 +84,19 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
 
         generate();
 
-        // Revoke blobs when modal closes or rfqData changes
         return () => revokeBlobUrls();
     }, [open, rfqData, revokeBlobUrls]);
 
-    // Update iframe when active vendor or zoom changes
     useEffect(() => {
         if (!iframeRef.current || vendorPDFs.length === 0) return;
         const current = vendorPDFs[activeIdx];
         if (!current) return;
-        // Append zoom fragment for PDF viewers that support it (Chromium PDF viewer does)
         const zoomParam = encodeURIComponent(zoom);
         iframeRef.current.src = `${current.blobUrl}#zoom=${zoomParam}&page=1`;
     }, [activeIdx, zoom, vendorPDFs]);
 
     const activeVendor = vendorPDFs[activeIdx]?.vendor;
 
-    // Build filename for a vendor
     const buildFileName = useCallback((vendor) => {
         const vName = (vendor.vendorName || vendor.name || 'Vendor').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '-');
         const rfqNum = (rfqData?.rfqNumber || 'RFQ').replace(/[^a-zA-Z0-9-]/g, '');
@@ -113,27 +104,24 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
         return `${vName}-${rfqNum}-${date}.pdf`;
     }, [rfqData]);
 
-    // Download single PDF
     const downloadSingle = useCallback((idx) => {
         const entry = vendorPDFs[idx];
         if (!entry) return;
         const fileName = buildFileName(entry.vendor);
         const link = document.createElement('a');
-        link.href = entry.blobUrl;  // blob: URL — works in all browsers
+        link.href = entry.blobUrl;
         link.download = fileName;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     }, [vendorPDFs, buildFileName]);
 
-    // Download all PDFs
     const downloadAll = useCallback(() => {
         vendorPDFs.forEach((_, idx) => {
             setTimeout(() => downloadSingle(idx), idx * 300);
         });
     }, [vendorPDFs, downloadSingle]);
 
-    // Open mailto for a specific vendor
     const emailVendor = useCallback((idx) => {
         const entry = vendorPDFs[idx];
         if (!entry) return;
@@ -167,28 +155,23 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
         window.open(mailtoLink);
     }, [vendorPDFs, rfqData]);
 
-    // Email all vendors
     const emailAll = useCallback(() => {
         vendorPDFs.forEach((_, idx) => {
             setTimeout(() => emailVendor(idx), idx * 500);
         });
     }, [vendorPDFs, emailVendor]);
 
-    // Confirm & Send
     const handleConfirmSend = async () => {
         if (sending) return;
         setSending(true);
         try {
-            // Download all PDFs first so user has copies
             downloadAll();
-            // Then trigger the actual create + send
             if (onConfirmSend) await onConfirmSend();
         } finally {
             setSending(false);
         }
     };
 
-    // Save as Draft
     const handleSaveDraft = async () => {
         if (sending) return;
         setSending(true);
@@ -199,9 +182,6 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
         }
     };
 
-    // IMPORTANT: all hooks must run on every render. Do NOT put any hook below
-    // the `if (!open) return null` early return — that would violate React's
-    // Rules of Hooks and crash the component into a blank page.
     const iframeSrc = useMemo(() => {
         if (vendorPDFs.length === 0 || !vendorPDFs[activeIdx]) return null;
         const zoomParam = encodeURIComponent(zoom);
@@ -211,37 +191,44 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-50 bg-black bg-opacity-50" role="dialog" aria-modal="true" aria-label="RFQ Preview">
-            <div className="bg-white w-screen h-screen flex flex-col">
+        <GlassModal
+            open
+            onClose={onClose}
+            size="full"
+            hideCloseButton
+            closeOnBackdrop={false}
+            className="p-0"
+        >
+            <div className="flex flex-col h-full">
                 {/* Header */}
-                <div className="px-4 py-3 border-b flex items-center justify-between">
+                <div className="px-4 py-3 border-b border-line flex items-center justify-between">
                     <div>
-                        <h3 className="text-lg font-semibold">
+                        <h3 className="text-lg font-semibold text-ink">
                             RFQ Preview — {rfqData?.rfqNumber || 'New RFQ'}
                         </h3>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-ink-muted">
                             {vendorPDFs.length > 0
                                 ? `${vendorPDFs.length} vendor PDF(s) generated — review before sending`
                                 : 'Generating vendor PDFs...'}
                         </p>
                     </div>
-                    <button onClick={onClose} className="text-gray-600 hover:text-gray-800 text-xl" aria-label="Close preview">
+                    <button onClick={onClose} className="text-ink-muted hover:text-ink text-xl" aria-label="Close preview">
                         ✕
                     </button>
                 </div>
 
                 {/* Toolbar */}
-                <div className="px-4 py-2 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-2">
+                <div className="px-4 py-2 border-b border-line bg-surface-sunken flex flex-wrap items-center justify-between gap-2">
                     {/* Vendor tabs */}
                     <div className="flex items-center gap-1 overflow-x-auto">
                         {vendorPDFs.map((entry, idx) => (
                             <button
                                 key={entry.vendor.vendorId || idx}
                                 onClick={() => setActiveIdx(idx)}
-                                className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap transition-colors ${
+                                className={`px-3 py-1.5 rounded-card text-sm whitespace-nowrap transition-colors ${
                                     activeIdx === idx
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                                        ? 'bg-primary text-white'
+                                        : 'bg-surface border border-line text-ink hover:bg-surface-muted'
                                 }`}
                             >
                                 {entry.vendor.vendorName || entry.vendor.name || `Vendor ${idx + 1}`}
@@ -251,9 +238,9 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
 
                     {/* Zoom + actions */}
                     <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-1 text-sm text-gray-600">
+                        <label className="flex items-center gap-1 text-sm text-ink-muted">
                             Zoom
-                            <select value={zoom} onChange={(e) => setZoom(e.target.value)} className="border rounded px-2 py-1 text-sm">
+                            <select value={zoom} onChange={(e) => setZoom(e.target.value)} className="border border-line rounded-card px-2 py-1 text-sm bg-surface">
                                 <option value="page-width">Fit width</option>
                                 <option value="page-fit">Fit page</option>
                                 <option value="75">75%</option>
@@ -266,35 +253,20 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
 
                         {vendorPDFs.length > 0 && (
                             <>
-                                <button
-                                    onClick={() => downloadSingle(activeIdx)}
-                                    className="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded text-sm flex items-center gap-1"
-                                    title="Download this vendor's PDF"
-                                >
-                                    <span>&#11015;</span> This PDF
-                                </button>
-                                <button
-                                    onClick={downloadAll}
-                                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-800 text-white rounded text-sm flex items-center gap-1"
-                                    title="Download all vendor PDFs"
-                                >
-                                    <span>&#11015;</span> All ({vendorPDFs.length})
-                                </button>
-                                <button
-                                    onClick={() => emailVendor(activeIdx)}
-                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm flex items-center gap-1"
-                                    title={`Email ${activeVendor?.vendorName || activeVendor?.name || 'vendor'}`}
-                                >
-                                    <span>&#9993;</span> Email This Vendor
-                                </button>
+                                <Button variant="secondary" size="sm" onClick={() => downloadSingle(activeIdx)} title="Download this vendor's PDF">
+                                    ⬇ This PDF
+                                </Button>
+                                <Button variant="secondary" size="sm" onClick={downloadAll} title="Download all vendor PDFs">
+                                    ⬇ All ({vendorPDFs.length})
+                                </Button>
+                                <Button variant="primary" size="sm" onClick={() => emailVendor(activeIdx)}
+                                    title={`Email ${activeVendor?.vendorName || activeVendor?.name || 'vendor'}`}>
+                                    ✉ Email This Vendor
+                                </Button>
                                 {vendorPDFs.length > 1 && (
-                                    <button
-                                        onClick={emailAll}
-                                        className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded text-sm flex items-center gap-1"
-                                        title="Open mailto for all vendors"
-                                    >
-                                        <span>&#9993;</span> Email All
-                                    </button>
+                                    <Button variant="primary" size="sm" onClick={emailAll} title="Open mailto for all vendors">
+                                        ✉ Email All
+                                    </Button>
                                 )}
                             </>
                         )}
@@ -303,21 +275,19 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
 
                 {/* PDF viewer */}
                 <div className="flex-1 p-3 overflow-hidden flex flex-col">
-                    <div className="flex-1 border rounded-md overflow-auto bg-gray-100">
+                    <div className="flex-1 border border-line rounded-card overflow-auto bg-surface-sunken">
                         {loading && (
-                            <div className="flex items-center justify-center h-full text-gray-700">
-                                <div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full mr-3" />
+                            <div className="flex items-center justify-center h-full text-ink">
+                                <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mr-3" />
                                 Generating {rfqData?.vendors?.length || 0} vendor PDF(s)...
                             </div>
                         )}
                         {!loading && error && (
                             <div className="flex items-center justify-center h-full">
-                                <div className="text-center text-red-600">
+                                <div className="text-center text-danger">
                                     <p className="font-medium mb-2">Failed to generate preview</p>
                                     <p className="text-sm mb-4">{error}</p>
-                                    <button onClick={onClose} className="px-4 py-2 bg-gray-600 text-white rounded">
-                                        Close
-                                    </button>
+                                    <Button variant="secondary" onClick={onClose}>Close</Button>
                                 </div>
                             </div>
                         )}
@@ -333,50 +303,29 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
                 </div>
 
                 {/* Bottom action bar */}
-                <div className="px-4 py-3 border-t bg-white flex items-center justify-between">
-                    <div className="text-sm text-gray-500">
+                <div className="px-4 py-3 border-t border-line bg-surface flex items-center justify-between">
+                    <div className="text-sm text-ink-muted">
                         {vendorPDFs.length > 0 && (
                             <>
                                 Viewing {activeIdx + 1} of {vendorPDFs.length} —{' '}
-                                <strong>{activeVendor?.vendorName || activeVendor?.name}</strong>
+                                <strong className="text-ink">{activeVendor?.vendorName || activeVendor?.name}</strong>
                                 {activeVendor?.contactEmail && (
-                                    <span className="text-gray-400 ml-1">({activeVendor.contactEmail})</span>
+                                    <span className="text-ink-subtle ml-1">({activeVendor.contactEmail})</span>
                                 )}
                             </>
                         )}
                     </div>
                     <div className="flex gap-2">
-                        <button
-                            onClick={onClose}
-                            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
-                        >
-                            Back & Edit
-                        </button>
-                        <button
-                            onClick={handleSaveDraft}
-                            disabled={sending || loading}
-                            className={`px-4 py-2 border rounded text-sm ${
-                                sending || loading
-                                    ? 'border-gray-200 text-gray-400 cursor-not-allowed'
-                                    : 'border-blue-600 text-blue-600 hover:bg-blue-50'
-                            }`}
-                        >
+                        <Button variant="danger" onClick={onClose}>Back & Edit</Button>
+                        <Button variant="secondary" onClick={handleSaveDraft} disabled={sending || loading}>
                             Save as Draft
-                        </button>
-                        <button
-                            onClick={handleConfirmSend}
-                            disabled={sending || loading}
-                            className={`px-4 py-2 rounded text-sm text-white ${
-                                sending || loading
-                                    ? 'bg-gray-300 cursor-not-allowed'
-                                    : 'bg-green-600 hover:bg-green-700'
-                            }`}
-                        >
+                        </Button>
+                        <Button variant="primary" onClick={handleConfirmSend} disabled={sending || loading}>
                             {sending ? 'Sending...' : 'Confirm & Send to Vendors'}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>
-        </div>
+        </GlassModal>
     );
 }

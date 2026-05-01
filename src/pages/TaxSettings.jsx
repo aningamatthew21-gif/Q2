@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import api from '../api';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import TargetsSettings from '../components/settings/TargetsSettings';
 import SignaturesSettings from '../components/settings/SignaturesSettings';
@@ -162,14 +164,25 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
-                <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-800">System Settings</h1>
-                    {currentUser && currentUser.role === 'controller' && <button onClick={() => navigateTo('controllerDashboard')} className="text-sm"><Icon id="arrow-left" className="mr-1" /> Back to Dashboard</button>}
-                    {currentUser && currentUser.role === 'sales' && <button onClick={() => navigateTo('salesDashboard')} className="text-sm"><Icon id="arrow-left" className="mr-1" /> Back to Sales</button>}
-                </header>
+        <>
+            {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
+            <PageHeader
+                title="System Settings"
+                actions={
+                    <>
+                        {currentUser && currentUser.role === 'controller' && (
+                            <Button variant="ghost" size="sm" onClick={() => navigateTo('controllerDashboard')} leftIcon={<Icon id="arrow-left" />}>
+                                Back to Dashboard
+                            </Button>
+                        )}
+                        {currentUser && currentUser.role === 'sales' && (
+                            <Button variant="ghost" size="sm" onClick={() => navigateTo('salesDashboard')} leftIcon={<Icon id="arrow-left" />}>
+                                Back to Sales
+                            </Button>
+                        )}
+                    </>
+                }
+            />
 
                 {/* Tab Navigation */}
                 <div className="flex space-x-4 mb-6 border-b border-gray-200 pb-1 overflow-x-auto">
@@ -182,7 +195,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
 
                 {activeTab === 'taxes' && (
                     <>
-                        {currentUser && currentUser.role === 'controller' && <div className="bg-white p-6 rounded-xl shadow-md max-w-4xl mx-auto">
+                        {currentUser && currentUser.role === 'controller' && <div className="bg-surface p-6 rounded-panel shadow-card border border-line max-w-4xl mx-auto">
                             <div className="flex justify-between items-center mb-6">
                                 <div>
                                     <h2 className="text-xl font-semibold text-gray-700">Tax Configuration</h2>
@@ -268,7 +281,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
                         </div>}
 
                         {/* Exchange Rate Settings Section */}
-                        {currentUser && currentUser.role === 'controller' && <div className="bg-white p-6 rounded-xl shadow-md max-w-4xl mx-auto mt-8">
+                        {currentUser && currentUser.role === 'controller' && <div className="bg-surface p-6 rounded-panel shadow-card border border-line max-w-4xl mx-auto mt-8">
                             <div className="flex items-start justify-between mb-2">
                                 <div>
                                     <h2 className="text-xl font-semibold text-gray-700">Rate Settings</h2>
@@ -359,8 +372,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
                 {activeTab === 'targets' && (
                     <TargetsSettings />
                 )}
-            </div>
-        </div>
+        </>
     );
 };
 

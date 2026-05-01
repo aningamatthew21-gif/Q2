@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import api from '../api';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import RFQPreviewModal from '../components/modals/RFQPreviewModal';
 import { useRealtimePRs } from '../hooks/useRealtimePRs';
@@ -146,36 +148,37 @@ const RFQBuilder = ({ navigateTo, currentUser, pageContext }) => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                {notification && (
-                    <Notification
-                        message={notification.message}
-                        type={notification.type}
-                        onDismiss={() => setNotification(null)}
-                    />
-                )}
-
-                {/* RFQ Preview Modal */}
-                <RFQPreviewModal
-                    open={showPreview}
-                    onClose={() => setShowPreview(false)}
-                    rfqData={previewRfqData}
-                    onConfirmSend={() => handleCreate(true)}
-                    onSaveDraft={() => handleCreate(false)}
+        <>
+            {notification && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onDismiss={() => setNotification(null)}
                 />
+            )}
 
-                <header className="bg-white p-4 rounded-xl shadow-md mb-6 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold">New Request for Quotation</h1>
-                    <button onClick={() => navigateTo('rfqList')} className="text-sm">
-                        <Icon id="arrow-left" className="mr-1" /> Back
-                    </button>
-                </header>
+            {/* RFQ Preview Modal */}
+            <RFQPreviewModal
+                open={showPreview}
+                onClose={() => setShowPreview(false)}
+                rfqData={previewRfqData}
+                onConfirmSend={() => handleCreate(true)}
+                onSaveDraft={() => handleCreate(false)}
+            />
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <PageHeader
+                title="New Request for Quotation"
+                actions={
+                    <Button variant="ghost" size="sm" onClick={() => navigateTo('rfqList')} leftIcon={<Icon id="arrow-left" />}>
+                        Back
+                    </Button>
+                }
+            />
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Left column — header + PR selection */}
                     <div className="lg:col-span-2 space-y-6">
-                        <div className="bg-white p-6 rounded-xl shadow-md">
+                        <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
                             <h2 className="text-lg font-semibold mb-4">RFQ Details</h2>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="md:col-span-2">
@@ -231,7 +234,7 @@ const RFQBuilder = ({ navigateTo, currentUser, pageContext }) => {
                             </div>
                         </div>
 
-                        <div className="bg-white p-6 rounded-xl shadow-md">
+                        <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
                             <h2 className="text-lg font-semibold mb-2">
                                 Open Purchase Requisitions
                                 <span className="ml-2 text-sm text-gray-500">({selectedPRs.size} selected)</span>
@@ -289,7 +292,7 @@ const RFQBuilder = ({ navigateTo, currentUser, pageContext }) => {
 
                     {/* Right column — vendors + actions */}
                     <div className="space-y-6">
-                        <div className="bg-white p-6 rounded-xl shadow-md">
+                        <div className="bg-surface p-6 rounded-panel shadow-card border border-line">
                             <h2 className="text-lg font-semibold mb-2">
                                 Vendors <span className="ml-2 text-sm text-gray-500">({selectedVendors.size} selected)</span>
                             </h2>
@@ -334,7 +337,7 @@ const RFQBuilder = ({ navigateTo, currentUser, pageContext }) => {
                             )}
                         </div>
 
-                        <div className="bg-white p-6 rounded-xl shadow-md space-y-3">
+                        <div className="bg-surface p-6 rounded-panel shadow-card border border-line space-y-3">
                             <button
                                 disabled={!canSubmit || submitting}
                                 onClick={handlePreview}
@@ -363,8 +366,7 @@ const RFQBuilder = ({ navigateTo, currentUser, pageContext }) => {
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
+        </>
     );
 };
 

@@ -669,11 +669,25 @@ router.post('/:id/reapprove', catchAsync(async (req, res) => {
       );
     }
 
-    await conn.execute(
-      `INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
-       VALUES ('INVOICE_REAPPROVAL_DECISION','INVOICE',:id,:actor,:payload)`,
-      { id, actor: req.user.email, payload: JSON.stringify({ decision, note: note || null }) }
-    );
+    // Audit-event INSERT — same defensive guard as in /rfqs/:id/approve. The
+    // CHK_PE_ENTITY constraint on QA_PROCUREMENT_EVENTS must include 'INVOICE'
+    // (added in migrate_procurement_schema.js step 10b). If the migration
+    // hasn't been run on this deployment the INSERT would throw ORA-02290 and
+    // roll back the user-visible reapproval decision. We log and continue —
+    // the load-bearing state is REQUIRES_REAPPROVAL on QA_INVOICES.
+    try {
+      await conn.execute(
+        `INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
+         VALUES ('INVOICE_REAPPROVAL_DECISION','INVOICE',:id,:actor,:payload)`,
+        { id, actor: req.user.email, payload: JSON.stringify({ decision, note: note || null }) }
+      );
+    } catch (eventErr) {
+      console.warn(
+        `[reapproval] Failed to log INVOICE_REAPPROVAL_DECISION event for ${id} ` +
+        `(ENTITY_TYPE constraint may not yet allow 'INVOICE' — run ` +
+        `migrate_procurement_schema.js): ${eventErr.message}`
+      );
+    }
   });
 
   emitToAll('invoices:updated');

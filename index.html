@@ -4,7 +4,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <!--
+      Inter font — preconnect + weight range used across the app.
+      Renders as Inter on Windows/Linux; on Apple devices the
+      font stack in --font-sans prefers SF Pro Display so the
+      download is effectively skipped. Kept minimal (wght 400–700)
+      so there is no perceptible payload on first paint.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <title>MIDSA Quote</title>
   </head>
   <body>
     <div id="root"></div>

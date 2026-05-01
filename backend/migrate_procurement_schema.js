@@ -110,13 +110,28 @@ const statements = [
     )`, ignore: ['ORA-00955'] },
 
     // 10. Procurement Events
+    //     Note: The CHK_PE_ENTITY constraint is defined here for fresh installs,
+    //     and then *immediately* relaxed below so that legacy deployments (which
+    //     already created the table without 'INVOICE' in the allowed list) get
+    //     the new constraint on next migration run. The Phase 4 reapproval flow
+    //     in routes/rfqs.js writes ENTITY_TYPE='INVOICE' events; without this
+    //     fix the /rfqs/:id/approve endpoint throws ORA-02290 when an invoice
+    //     crosses the variance threshold.
     { sql: `CREATE TABLE QA_PROCUREMENT_EVENTS (
         EVENT_ID NUMBER GENERATED ALWAYS AS IDENTITY, EVENT_TIME TIMESTAMP DEFAULT SYSTIMESTAMP,
         EVENT_TYPE VARCHAR2(50) NOT NULL, ENTITY_TYPE VARCHAR2(20) NOT NULL,
         ENTITY_ID VARCHAR2(50), ACTOR VARCHAR2(255), PAYLOAD CLOB,
         CONSTRAINT PK_PROC_EVENTS PRIMARY KEY (EVENT_ID),
-        CONSTRAINT CHK_PE_ENTITY CHECK (ENTITY_TYPE IN ('PR','RFQ','VENDOR','RESPONSE','SETTING'))
+        CONSTRAINT CHK_PE_ENTITY CHECK (ENTITY_TYPE IN ('PR','RFQ','VENDOR','RESPONSE','SETTING','INVOICE'))
     )`, ignore: ['ORA-00955'] },
+
+    // 10b. Phase 4 retro-fix — relax CHK_PE_ENTITY to allow 'INVOICE'.
+    // Drop-and-recreate is the only idempotent route Oracle gives us for a
+    // CHECK constraint. ORA-02443 = "constraint not found" (already dropped).
+    // ORA-02264 = "name already in use by an existing constraint" (already
+    // recreated). Both are safe to ignore on re-runs.
+    { sql: `ALTER TABLE QA_PROCUREMENT_EVENTS DROP CONSTRAINT CHK_PE_ENTITY`, ignore: ['ORA-02443', 'ORA-00942'] },
+    { sql: `ALTER TABLE QA_PROCUREMENT_EVENTS ADD CONSTRAINT CHK_PE_ENTITY CHECK (ENTITY_TYPE IN ('PR','RFQ','VENDOR','RESPONSE','SETTING','INVOICE'))`, ignore: ['ORA-02264', 'ORA-00942'] },
 
     // 11. Procurement Settings
     { sql: `CREATE TABLE QA_PROCUREMENT_SETTINGS (

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Icon from '../components/common/Icon';
+import PageHeader from '../components/common/PageHeader';
+import Button from '../components/common/Button';
 import ReportModal from '../components/ReportModal';
 import { formatCurrency } from '../utils/formatting';
 import { getInvoiceDate } from '../utils/helpers';
@@ -71,31 +73,20 @@ const ControllerAnalyticsDashboard = ({ navigateTo, userId, userEmail, currentUs
 
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            <div className="max-w-7xl mx-auto p-4 md:p-8">
-                <header className="bg-white p-4 rounded-xl shadow-md mb-8 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-gray-800">Controller Dashboard</h1>
-                    <div className="flex items-center space-x-4">
-                        <button onClick={() => navigateTo('taxSettings')} className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"><Icon id="cog" className="mr-2" />System Settings</button>
-                        <button
-                            onClick={() => setOpenReport(true)}
-                            className="py-2 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
-                        >
-                            <Icon id="chart-bar" className="mr-2" />
+        <>
+            <PageHeader
+                title="Controller Dashboard"
+                actions={
+                    <>
+                        <Button variant="secondary" size="sm" onClick={() => navigateTo('taxSettings')} leftIcon={<Icon id="cog" />}>
+                            System Settings
+                        </Button>
+                        <Button variant="primary" size="sm" onClick={() => setOpenReport(true)} leftIcon={<Icon id="chart-bar" />}>
                             Generate Full Report
-                        </button>
-
-                        {/* User Profile Section */}
-                        <div className="flex items-center space-x-2 px-3 py-1 bg-gray-100 rounded-full border border-gray-200 min-w-0 max-w-[260px]">
-                            <div className="bg-gray-300 rounded-full p-1 flex-shrink-0">
-                                <Icon id="user" className="text-gray-600 w-4 h-4" />
-                            </div>
-                            <span className="text-sm font-medium text-gray-700 truncate" title={currentUser?.email || username}>{username}</span>
-                        </div>
-
-                        <button onClick={() => navigateTo('login')} className="text-sm text-gray-600 hover:text-blue-600"><Icon id="sign-out-alt" className="mr-1" /> Logout</button>
-                    </div>
-                </header>
+                        </Button>
+                    </>
+                }
+            />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
                     {/* H3 — was previously gated on `currentUser.level === 'main'`,
@@ -341,7 +332,6 @@ const ControllerAnalyticsDashboard = ({ navigateTo, userId, userEmail, currentUs
                         <p className="text-gray-600 mt-2">revenue generating invoices</p>
                     </div>
                 </div>
-            </div>
 
             {/* Report Modal */}
             {openReport && (
@@ -352,7 +342,7 @@ const ControllerAnalyticsDashboard = ({ navigateTo, userId, userEmail, currentUs
             )}
 
 
-        </div>
+        </>
     );
 };
 
