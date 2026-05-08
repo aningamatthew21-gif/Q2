@@ -4,6 +4,7 @@ import PageHeader from '../components/common/PageHeader';
 import Button from '../components/common/Button';
 import { useRealtimeRFQs } from '../hooks/useRealtimeRFQs';
 import { useDebounce } from '../hooks/useDebounce';
+import { SortableHeader, useSortable } from '../components/v2';
 
 const STATUS_FILTERS = [
     { id: 'ALL',              label: 'All' },
@@ -70,6 +71,20 @@ const RFQList = ({ navigateTo, currentUser }) => {
         pastDeadline: rfqs.filter(r => r.isPastDeadline && !r.isEscalated).length,
         escalated:    rfqs.filter(r => r.isEscalated).length
     }), [rfqs]);
+
+    // Project numeric/date columns onto themselves so the sort hook's
+    // detection picks the right comparator (numeric for amount, date for
+    // deadline/created, locale-string for everything else).
+    const sortableRfqs = useMemo(() => filtered.map(r => ({
+        ...r,
+        _award:    Number(r.totalAwardAmount) || 0,
+        _items:    Number(r.lineItemCount) || 0,
+        _vendors:  Number(r.vendorCount) || 0,
+        _deadline: Date.parse(r.submissionDeadline) || 0,
+        _created:  Date.parse(r.createdAt) || 0
+    })), [filtered]);
+    const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedRfqs } =
+        useSortable(sortableRfqs, '_created', 'desc');
 
     const role = currentUser?.role;
     const backPage = role === 'procurement' ? 'procurementDashboard' : 'controllerDashboard';
@@ -151,19 +166,19 @@ const RFQList = ({ navigateTo, currentUser }) => {
                             <table className="w-full text-left">
                                 <thead className="bg-gray-50">
                                     <tr>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase">RFQ #</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase">Title</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase">Deadline</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase text-center">Items</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase text-center" title="Responses received / Vendors invited">Responses</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase text-right">Award</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase text-center">Status</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase">Created</th>
+                                        <th className="p-3 text-left"><SortableHeader  label="RFQ #"     sortKey="rfqNumber" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                        <th className="p-3 text-left"><SortableHeader  label="Title"     sortKey="title"     current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                        <th className="p-3 text-left"><SortableHeader  label="Deadline"  sortKey="_deadline" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                        <th className="p-3 text-center"><SortableHeader label="Items"    sortKey="_items"    current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                        <th className="p-3 text-center"><SortableHeader label="Responses" sortKey="_vendors" current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                        <th className="p-3 text-right"><SortableHeader  label="Award"    sortKey="_award"    current={sortKey} dir={sortDir} onToggle={toggleSort} align="right" /></th>
+                                        <th className="p-3 text-center"><SortableHeader label="Status"   sortKey="status"    current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                        <th className="p-3 text-left"><SortableHeader  label="Created"   sortKey="_created"  current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
                                         <th className="p-3 font-semibold text-xs text-gray-500 uppercase"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filtered.map(r => {
+                                    {sortedRfqs.map(r => {
                                         const needsAttention =
                                             (r.status === 'SENT' || r.status === 'RECEIVING') &&
                                             r.responseCount > 0 && r.responseCount < r.vendorCount;

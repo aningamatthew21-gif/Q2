@@ -2,6 +2,11 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import GlobalStaleCheck from '../components/GlobalStaleCheck';
 import { logActivity } from '../utils/logger';
 import api from '../api';
+// v2 (Fluent 2 Office) shell. Replaces AppLayout. The legacy AppLayout
+// is still imported below as a fallback; once every page is verified on
+// AppShell we'll delete the v1 layout module entirely.
+import AppShell from '../components/v2/AppShell';
+// eslint-disable-next-line no-unused-vars
 import AppLayout from '../components/layout/AppLayout';
 
 // Import all page components
@@ -384,7 +389,7 @@ export const AppProvider = ({ children }) => {
 
     return (
         <AppContext.Provider value={value}>
-            {isChromeless ? renderPage() : <AppLayout>{renderPage()}</AppLayout>}
+            {isChromeless ? renderPage() : <AppShell>{renderPage()}</AppShell>}
             <GlobalStaleCheck />
         </AppContext.Provider>
     );

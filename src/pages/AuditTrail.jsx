@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import api from '../api';
 import socket from '../socket';
 import Icon from '../components/common/Icon';
+import { SortableHeader, useSortable } from '../components/v2';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const CATEGORIES = [
@@ -172,6 +173,16 @@ const AuditTrail = ({ navigateTo, userId }) => {
   // ── Row expand ─────────────────────────────────────────────────────────────
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id);
 
+  // Project the timestamp onto a numeric `_ts` field so the sort hook can
+  // do a date comparison; everything else falls through to its locale
+  // string comparator.
+  const sortableLogs = useMemo(() => logs.map(l => ({
+    ...l,
+    _ts: Date.parse(l.timestamp || l.createdAt || l.time) || 0
+  })), [logs]);
+  const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedLogs } =
+    useSortable(sortableLogs, '_ts', 'desc');
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50">
@@ -327,18 +338,18 @@ const AuditTrail = ({ navigateTo, userId }) => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Timestamp</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Action</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Entity</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Severity</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Outcome</th>
+                    <th className="px-4 py-3 text-left"><SortableHeader label="Timestamp" sortKey="_ts"      current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                    <th className="px-4 py-3 text-left"><SortableHeader label="User"      sortKey="userEmail" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                    <th className="px-4 py-3 text-left"><SortableHeader label="Action"    sortKey="action"   current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                    <th className="px-4 py-3 text-left"><SortableHeader label="Entity"    sortKey="entity"   current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                    <th className="px-4 py-3 text-left"><SortableHeader label="Severity"  sortKey="severity" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                    <th className="px-4 py-3 text-left"><SortableHeader label="Outcome"   sortKey="outcome"  current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Details</th>
                     <th className="px-4 py-3 w-8"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {logs.map(log => {
+                  {sortedLogs.map(log => {
                     const sev  = SEVERITY_CONFIG[log.severity]  || SEVERITY_CONFIG.info;
                     const out  = OUTCOME_CONFIG[log.outcome]    || OUTCOME_CONFIG.success;
                     const isExp = expandedId === log.id;

@@ -19,8 +19,8 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
  */
 
 export const SOUND_STYLES = [
-  { id: 'mouse',      label: 'Mouse Click',    hint: 'Classic desktop click (default)' },
-  { id: 'soft',       label: 'Soft Tap',       hint: 'Apple-style UI blip' },
+  { id: 'soft',       label: 'Soft Tap',       hint: 'Office-style subtle blip (default)' },
+  { id: 'mouse',      label: 'Mouse Click',    hint: 'Classic desktop click' },
   { id: 'bubble',     label: 'Bubble Pop',     hint: 'Playful descending pop' },
   { id: 'pop',        label: 'Button Pop',     hint: 'Rubbery click' },
   { id: 'typewriter', label: 'Typewriter',     hint: 'Mechanical keyboard feel' }
@@ -28,7 +28,9 @@ export const SOUND_STYLES = [
 
 const DEFAULTS = {
   soundEnabled:   true,
-  soundStyle:     'mouse',
+  // Default flipped from 'mouse' → 'soft' for the Fluent 2 Office look.
+  // Existing users keep their saved preference (read from localStorage).
+  soundStyle:     'soft',
   hapticsEnabled: true,
   theme:          'light'
 };

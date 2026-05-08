@@ -8,6 +8,7 @@ import Button from '../components/common/Button';
 import PreviewModal from '../components/PreviewModal';
 import QuantityModal from '../components/modals/QuantityModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
+import GlassModal from '../components/common/GlassModal';
 import { logActivity } from '../utils/logger';
 import EnhancedAIService from '../services/EnhancedAIService';
 import NLPService from '../services/NLPService';
@@ -474,9 +475,15 @@ const QuotingModule = ({ navigateTo, userId }) => {
 
     return (
         <>
-            {notification && (<div className={`mb-6 p-4 rounded-md ${notification.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>{notification.message}</div>)}
+            {notification && (
+                <div className={`mb-4 px-4 py-3 rounded-card text-[13px] border ${
+                    notification.type === 'success'
+                      ? 'bg-ok-soft text-ok border-ok/30'
+                      : 'bg-err-soft text-err border-err/30'
+                }`}>{notification.message}</div>
+            )}
             <PageHeader
-                title="New Quote"
+                title="New quote"
                 subtitle="Create a new sales quote for approval"
                 actions={
                     <Button variant="ghost" size="sm" onClick={() => navigateTo('salesDashboard')} leftIcon={<Icon id="times" />}>
@@ -484,33 +491,66 @@ const QuotingModule = ({ navigateTo, userId }) => {
                     </Button>
                 }
             />
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-140px)]">
-                    <div className="lg:col-span-1 space-y-6">
-                        <div className="bg-white p-6 rounded-xl shadow-md flex flex-col">
-                            <h2 className="text-xl font-semibold text-gray-700 mb-4 flex items-center"><Icon id="search" className="mr-3 text-gray-400" />Product Catalog</h2>
-                            <div className="relative mb-4">
-                                <input type="text" placeholder="Search products..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" />
-                                <Icon id="search" className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100vh-180px)]">
+                    <div className="lg:col-span-1 flex flex-col">
+                        <div className="bg-white border border-n-200 rounded-card flex flex-col h-full overflow-hidden">
+                            {/* Catalog header */}
+                            <div className="px-4 py-3 border-b border-n-200">
+                                <div className="text-[13px] font-semibold text-n-800 flex items-center gap-2">
+                                    <Icon id="search" className="w-4 h-4 text-n-500" /> Product catalog
+                                </div>
+                                <div className="text-xs text-n-500 mt-0.5">Click an item to add it to the quote</div>
                             </div>
 
-                            {/* VIRTUAL INVENTORY BUTTON */}
-                            <div className="mb-4">
-                                <button
+                            <div className="p-4 space-y-3">
+                                <div className="relative">
+                                    <Icon id="search" className="w-3.5 h-3.5 text-n-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search products…"
+                                        value={searchTerm}
+                                        onChange={e => setSearchTerm(e.target.value)}
+                                        className="w-full h-9 pl-8 pr-3 text-[13px] bg-n-50 border border-n-200 rounded-md text-n-700 placeholder:text-n-400 focus:outline-none focus:bg-white focus:border-accent focus:shadow-focus transition-colors"
+                                    />
+                                </div>
+
+                                {/* Sourced / Custom button — secondary v2 */}
+                                <Button
+                                    variant="default"
+                                    size="md"
+                                    fullWidth
+                                    leftIcon={<Icon id="plus" />}
                                     onClick={() => setIsCustomModalOpen(true)}
-                                    className="w-full py-2 border-2 border-dashed border-blue-300 text-blue-600 rounded-lg hover:bg-blue-50 flex items-center justify-center font-medium transition-colors"
-                                >
-                                    <Icon id="plus" className="mr-2" /> Add Sourced / Custom Item
-                                </button>
+                                >Add sourced / custom item</Button>
                             </div>
-                            <div className="h-[400px] overflow-y-auto border border-gray-100 rounded-lg">
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="p-3 font-semibold text-xs text-gray-500 uppercase tracking-wider">Product</th><th className="p-3 font-semibold text-xs text-gray-500 uppercase tracking-wider text-center">Stock</th><th className="p-3 font-semibold text-xs text-gray-500 uppercase tracking-wider text-right">Price</th></tr></thead>
-                                    <tbody className="divide-y divide-gray-100">
+
+                            <div className="flex-1 overflow-y-auto border-t border-n-200">
+                                <table className="w-full text-[13px]">
+                                    <thead className="bg-n-50 sticky top-0 z-10">
+                                        <tr>
+                                            <th className="px-3 py-2 text-left  text-[11px] font-semibold uppercase tracking-wider text-n-600">Product</th>
+                                            <th className="px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-n-600">Stock</th>
+                                            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-n-600">Price</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
                                         {filteredInventory.map(item => (
-                                            <tr key={item.id} onClick={() => handleRequestAddItem(item)} className="hover:bg-blue-50 cursor-pointer transition-colors group" title="Click to add to quote">
-                                                <td className="p-3"><div className="font-medium text-gray-900 text-sm">{item.name}</div><div className="text-xs text-gray-400 group-hover:text-blue-500">{item.id}</div></td>
-                                                <td className={`p-3 text-center font-medium text-sm ${item.stock < 0 ? 'text-red-600' : item.stock <= item.restockLimit ? 'text-orange-600' : 'text-green-600'}`}>{item.stock}</td>
-                                                <td className="p-3 text-right text-sm font-medium text-gray-700">{formatCurrency(quoteCurrency, item.displayPrice || item.price)}</td>
+                                            <tr
+                                                key={item.id}
+                                                onClick={() => handleRequestAddItem(item)}
+                                                className="border-b border-n-100 hover:bg-accent-soft/40 cursor-pointer transition-colors group"
+                                                title="Click to add to quote"
+                                            >
+                                                <td className="px-3 py-2">
+                                                    <div className="font-medium text-n-800 text-[13px] truncate">{item.name}</div>
+                                                    <div className="text-[11px] text-n-400 group-hover:text-accent font-mono-num">{item.id}</div>
+                                                </td>
+                                                <td className={`px-3 py-2 text-center font-mono-num text-[12.5px] ${
+                                                    item.stock < 0 ? 'text-err'
+                                                  : item.stock <= item.restockLimit ? 'text-warn'
+                                                  : 'text-ok'
+                                                }`}>{item.stock}</td>
+                                                <td className="px-3 py-2 text-right font-mono-num text-[12.5px] text-n-700">{formatCurrency(quoteCurrency, item.displayPrice || item.price)}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -518,55 +558,142 @@ const QuotingModule = ({ navigateTo, userId }) => {
                             </div>
                         </div>
                     </div>
-                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-md h-full flex flex-col">
-                        <h2 className="text-xl font-semibold text-gray-700 mb-4">Current Quote</h2>
-                        {/* UPDATED CUSTOMER INPUT */}
-                        <div className="mb-4 relative" ref={customerDropdownRef}>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Customer <span className="text-red-500">*</span></label>
-                            <input
-                                type="text"
-                                value={customerSearch}
-                                onChange={(e) => {
-                                    setCustomerSearch(e.target.value);
-                                    setIsCustomerDropdownOpen(true);
-                                    // Reset selected if user modifies text
-                                    if (selectedCustomer && e.target.value !== selectedCustomer.name) {
-                                        setSelectedCustomer(null);
-                                    }
-                                }}
-                                onFocus={() => setIsCustomerDropdownOpen(true)}
-                                className={`w-full mt-1 pl-3 pr-10 py-2 border rounded-md focus:ring-blue-500 ${!selectedCustomer && customerSearch === '' ? 'border-gray-300' : 'border-gray-300'}`}
-                                placeholder="Search or select a customer..."
-                            />
-                            {isCustomerDropdownOpen && (<ul className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">{filteredCustomers.length > 0 ? filteredCustomers.map(c => (<li key={c.id} onClick={() => handleSelectCustomer(c)} className="px-4 py-2 hover:bg-blue-50 cursor-pointer">{c.name}</li>)) : <li className="px-4 py-2 text-gray-500">No customers found</li>}</ul>)}
+                    <div className="lg:col-span-2 bg-white border border-n-200 rounded-card h-full flex flex-col overflow-hidden">
+                        <div className="px-4 py-3 border-b border-n-200">
+                            <div className="text-[13px] font-semibold text-n-800">Current quote</div>
+                            <div className="text-xs text-n-500 mt-0.5">Select a customer, then add items from the catalog</div>
                         </div>
-                        <div className="flex-1 overflow-y-auto border rounded-md mb-4">{quoteItems.length > 0 ? (<table className="w-full text-left"><thead className="bg-gray-50 sticky top-0"><tr><th className="p-2 font-semibold text-sm">Item</th><th className="p-2 font-semibold text-sm text-center">Qty</th><th className="p-2 font-semibold text-sm text-right">Unit Price</th><th className="p-2 font-semibold text-sm text-center">Action</th></tr></thead><tbody>{quoteItems.map(item => (<tr key={item.id} className="border-b"><td className="p-2 text-sm font-medium">{item.name}{item.isBackorder && <span className="ml-2 text-xs font-semibold text-yellow-800 bg-yellow-200 px-2 py-0.5 rounded-full">Backorder</span>}{item.type === 'sourced' && <span className="ml-2 text-xs font-semibold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">Awaiting Procurement</span>}</td><td className="p-2 text-center"><input type="number" value={item.quantity} onChange={e => handleUpdateQuantity(item.id, e.target.value)} className="w-16 text-center border-gray-300 rounded-md" min="0" /></td><td className="p-2 text-right text-sm">{formatAmountForQuote(item.finalPrice || item.price)}</td><td className="p-2 text-center"><button onClick={() => handleRequestRemoveItem(item)} className="text-red-600 hover:text-red-800 font-medium text-sm py-1 px-3 border border-red-200 rounded hover:bg-red-50 transition-colors">Remove</button></td></tr>))}</tbody></table>) : (<div className="h-full flex items-center justify-center text-gray-500"><p>Use the AI assistant or add items manually.</p></div>)}</div>
-                        <div className="border-t pt-4 space-y-2 mt-auto">
-                            <div className="flex justify-between text-lg"><span className="font-semibold">GROSS TOTAL</span><span className="font-semibold">{formatAmountForQuote(totals.subtotal)}</span></div>
-                            <div className="space-y-1 text-sm">
-                                <div className="flex justify-between"><span>Shipping:</span><span>{formatAmountForQuote(totals.shipping)}</span></div>
-                                <div className="flex justify-between"><span>Handling:</span><span>{formatAmountForQuote(totals.handling)}</span></div>
-                                <div className="flex justify-between"><span>Discount:</span><span className="text-red-600">-{formatAmountForQuote(totals.discount)}</span></div>
+
+                        <div className="px-4 pt-3">
+                            {/* CUSTOMER INPUT — Fluent style */}
+                            <div className="relative" ref={customerDropdownRef}>
+                                <label className="block text-[12px] font-medium text-n-700 mb-1">Customer <span className="text-err">*</span></label>
+                                <input
+                                    type="text"
+                                    value={customerSearch}
+                                    onChange={(e) => {
+                                        setCustomerSearch(e.target.value);
+                                        setIsCustomerDropdownOpen(true);
+                                        if (selectedCustomer && e.target.value !== selectedCustomer.name) setSelectedCustomer(null);
+                                    }}
+                                    onFocus={() => setIsCustomerDropdownOpen(true)}
+                                    className="w-full h-9 px-3 text-[13px] bg-white border border-n-300 rounded-md text-n-800 placeholder:text-n-400 focus:outline-none focus:border-accent focus:shadow-focus transition-colors"
+                                    placeholder="Search or select a customer…"
+                                />
+                                {isCustomerDropdownOpen && (
+                                    <ul className="absolute z-10 w-full mt-1 bg-white border border-n-200 rounded-md shadow-popover max-h-60 overflow-y-auto">
+                                        {filteredCustomers.length > 0
+                                            ? filteredCustomers.map(c => (
+                                                <li key={c.id} onClick={() => handleSelectCustomer(c)}
+                                                    className="px-3 py-2 text-[13px] hover:bg-accent-soft cursor-pointer text-n-700">{c.name}</li>
+                                              ))
+                                            : <li className="px-3 py-2 text-[13px] text-n-500">No customers found</li>}
+                                    </ul>
+                                )}
                             </div>
-                            <div className="border-t pt-2"><div className="flex justify-between font-semibold"><span>Taxable Amount</span><span>{formatAmountForQuote(totals.subtotalWithCharges)}</span></div></div>
-                            {taxes.filter(t => t.enabled && t.on === 'subtotal').map(tax => (<div key={tax.id} className="flex justify-between text-sm text-gray-500"><span>{tax.name} ({tax.rate}%)</span><span>{formatAmountForQuote(totals[tax.id] || 0)}</span></div>))}
-                            <div className="flex justify-between font-semibold border-t pt-2"><span>Subtotal (Before VAT)</span><span>{formatAmountForQuote(totals.levyTotal)}</span></div>
-                            {taxes.filter(t => t.enabled && t.on === 'levyTotal').map(tax => (<div key={tax.id} className="flex justify-between text-sm text-gray-500"><span>{tax.name} ({tax.rate}%)</span><span>{formatAmountForQuote(totals[tax.id] || 0)}</span></div>))}
-                            <div className="flex justify-between text-xl font-bold border-t pt-2 mt-2"><span>Total Amount Payable</span><span>{formatAmountForQuote(totals.grandTotal)}</span></div>
                         </div>
-                        <div className="mt-6 space-y-2">
-                            <div className="flex items-center justify-end mb-2">
-                                <button onClick={toggleQuoteCurrency} className={`relative inline-flex items-center h-9 w-32 px-2 rounded-full transition-colors duration-500 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-300 ${quoteCurrency === 'USD' ? 'bg-blue-700' : 'bg-blue-700'}`} aria-pressed={quoteCurrency === 'USD'} title="Toggle currency between GHS and USD">
-                                    <span className="absolute inset-0 flex items-center justify-center text-white text-xs font-extrabold tracking-wide select-none">{quoteCurrency}</span>
-                                    <span className={`absolute top-1 h-7 w-7 bg-white rounded-full shadow-md transition-all duration-500 ease-in-out ${quoteCurrency === 'USD' ? 'right-1' : 'left-1'}`} />
+
+                        <div className="flex-1 overflow-y-auto px-4 pt-3 min-h-0">
+                            {quoteItems.length > 0 ? (
+                                <div className="border border-n-200 rounded-card overflow-hidden">
+                                    <table className="w-full text-[13px]">
+                                        <thead className="bg-n-50 sticky top-0">
+                                            <tr>
+                                                <th className="px-3 py-2 text-left  text-[11px] font-semibold uppercase tracking-wider text-n-600">Item</th>
+                                                <th className="px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-n-600 w-20">Qty</th>
+                                                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-n-600">Unit price</th>
+                                                <th className="px-3 py-2 w-16"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {quoteItems.map(item => (
+                                                <tr key={item.id} className="border-b border-n-100 hover:bg-n-50">
+                                                    <td className="px-3 py-2 text-[13px]">
+                                                        <span className="font-medium text-n-800">{item.name}</span>
+                                                        {item.isBackorder && (
+                                                            <span className="ml-2 text-[10.5px] font-semibold text-warn bg-warn-soft px-2 py-0.5 rounded-pill">Backorder</span>
+                                                        )}
+                                                        {item.type === 'sourced' && (
+                                                            <span className="ml-2 text-[10.5px] font-semibold text-info bg-info-soft px-2 py-0.5 rounded-pill">Awaiting procurement</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center">
+                                                        <input
+                                                            type="number"
+                                                            value={item.quantity}
+                                                            onChange={e => handleUpdateQuantity(item.id, e.target.value)}
+                                                            className="w-16 h-7 text-center text-[13px] bg-white border border-n-300 rounded-md focus:outline-none focus:border-accent focus:shadow-focus"
+                                                            min="0"
+                                                        />
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right font-mono-num text-[12.5px] text-n-800">{formatAmountForQuote(item.finalPrice || item.price)}</td>
+                                                    <td className="px-3 py-2 text-right">
+                                                        <button
+                                                            onClick={() => handleRequestRemoveItem(item)}
+                                                            className="px-2 h-7 text-[11.5px] font-medium text-err border border-n-200 rounded-md hover:bg-err-soft hover:border-err transition-colors"
+                                                        >Remove</button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-n-500 text-[13px]">
+                                    <div className="text-center">
+                                        <div className="w-12 h-12 rounded-full bg-n-100 grid place-items-center text-n-400 mx-auto mb-3">
+                                            <Icon id="list" className="w-5 h-5" />
+                                        </div>
+                                        <div className="text-n-700 font-medium">No items yet</div>
+                                        <div className="text-xs text-n-500 mt-1">Use the AI assistant or click items from the catalog</div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Totals breakdown */}
+                        <div className="border-t border-n-200 px-4 py-3 space-y-1.5 text-[13px] font-mono-num bg-n-50">
+                            <div className="flex justify-between text-n-700"><span className="font-semibold uppercase text-[11px] tracking-wider">Gross total</span><span className="font-semibold text-n-800">{formatAmountForQuote(totals.subtotal)}</span></div>
+                            <div className="flex justify-between text-n-600"><span>Shipping</span><span>{formatAmountForQuote(totals.shipping)}</span></div>
+                            <div className="flex justify-between text-n-600"><span>Handling</span><span>{formatAmountForQuote(totals.handling)}</span></div>
+                            <div className="flex justify-between text-n-600"><span>Discount</span><span className="text-err">-{formatAmountForQuote(totals.discount)}</span></div>
+                            <div className="flex justify-between font-semibold pt-1.5 border-t border-n-200 text-n-800"><span>Taxable amount</span><span>{formatAmountForQuote(totals.subtotalWithCharges)}</span></div>
+                            {taxes.filter(t => t.enabled && t.on === 'subtotal').map(tax => (
+                                <div key={tax.id} className="flex justify-between text-n-500 text-[12px]"><span>{tax.name} ({tax.rate}%)</span><span>{formatAmountForQuote(totals[tax.id] || 0)}</span></div>
+                            ))}
+                            <div className="flex justify-between font-semibold pt-1.5 border-t border-n-200 text-n-800"><span>Subtotal (before VAT)</span><span>{formatAmountForQuote(totals.levyTotal)}</span></div>
+                            {taxes.filter(t => t.enabled && t.on === 'levyTotal').map(tax => (
+                                <div key={tax.id} className="flex justify-between text-n-500 text-[12px]"><span>{tax.name} ({tax.rate}%)</span><span>{formatAmountForQuote(totals[tax.id] || 0)}</span></div>
+                            ))}
+                            <div className="flex justify-between text-[15px] font-bold pt-2 border-t border-n-300 text-n-900"><span>Total amount payable</span><span>{formatAmountForQuote(totals.grandTotal)}</span></div>
+                        </div>
+
+                        <div className="px-4 py-3 border-t border-n-200 flex flex-col gap-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="text-[11.5px] text-n-500" title="Monthly USD→GHS rate">
+                                    {fxLoading ? 'Loading rate…'
+                                      : fxError    ? 'Rate error'
+                                      : fxRateGhsPerUsd ? `Rate ${fxMonthKey}: GHS ${Number(fxRateGhsPerUsd).toFixed(4)} / USD`
+                                      : `No rate set for ${fxMonthKey}`}
+                                </div>
+                                <button
+                                    onClick={toggleQuoteCurrency}
+                                    className={`relative inline-flex items-center h-7 w-20 px-1 rounded-pill transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${quoteCurrency === 'USD' ? 'bg-accent' : 'bg-n-300'}`}
+                                    aria-pressed={quoteCurrency === 'USD'}
+                                    title="Toggle currency between GHS and USD"
+                                >
+                                    <span className={`absolute inset-0 flex items-center text-white text-[10.5px] font-bold tracking-wider select-none px-2 ${quoteCurrency === 'USD' ? 'justify-start' : 'justify-end'}`}>{quoteCurrency}</span>
+                                    <span className={`absolute top-0.5 h-6 w-6 bg-white rounded-full shadow-card transition-all duration-300 ${quoteCurrency === 'USD' ? 'right-0.5' : 'left-0.5'}`} />
                                 </button>
                             </div>
-                            <div className="flex justify-end -mt-1 mb-3">
-                                <div className="text-xs px-3 py-1 rounded-md border border-blue-200 bg-blue-50 text-blue-800" title="Monthly USD→GHS rate being used for conversion">
-                                    {fxLoading ? <span>Loading rate…</span> : fxError ? <span>Rate error</span> : fxRateGhsPerUsd ? <span>{`Rate ${fxMonthKey}: GHS ${Number(fxRateGhsPerUsd).toFixed(4)} / USD`}</span> : <span>No rate set for {fxMonthKey}</span>}
-                                </div>
-                            </div>
-                            <button onClick={openPreview} className="w-full py-3 px-4 border-transparent rounded-md text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300" disabled={quoteItems.length === 0 || !selectedCustomer}><Icon id="eye" className="mr-2" /> Preview & Submit</button>
+                            <Button
+                                variant="primary"
+                                size="lg"
+                                fullWidth
+                                disabled={quoteItems.length === 0 || !selectedCustomer}
+                                onClick={openPreview}
+                                leftIcon={<Icon id="eye" />}
+                            >Preview &amp; submit</Button>
                         </div>
                     </div>
                 </div>
@@ -574,32 +701,53 @@ const QuotingModule = ({ navigateTo, userId }) => {
             {removingItem && (<ConfirmationModal title="Remove Item" message={`Are you sure you want to remove "${removingItem.name}" from the quote?`} onConfirm={handleConfirmRemoveItem} onCancel={() => setRemovingItem(null)} confirmText="Remove" confirmColor="bg-red-600 hover:bg-red-700" />)}
             {isPreviewOpen && pendingInvoicePayload && (<PreviewModal open={isPreviewOpen} payload={pendingInvoicePayload} mode="invoice" onClose={() => setIsPreviewOpen(false)} onConfirm={async () => { setIsPreviewOpen(false); await handleSubmitForApproval(); }} />)}
 
-            {/* ADD SOURCED ITEM MODAL */}
-            {isCustomModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white p-6 rounded-xl shadow-xl w-96">
-                        <h3 className="text-lg font-bold mb-4 text-gray-800">Add Sourced Item</h3>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Item Name</label>
-                                <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={customItem.name} onChange={e => setCustomItem({ ...customItem, name: e.target.value })} placeholder="e.g. 360 Fisheye Camera" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Description</label>
-                                <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={customItem.description} onChange={e => setCustomItem({ ...customItem, description: e.target.value })} placeholder="Vendor/Specs..." />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Quantity</label>
-                                <input type="number" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={customItem.quantity} onChange={e => setCustomItem({ ...customItem, quantity: e.target.value })} min="1" />
-                            </div>
-                        </div>
-                        <div className="mt-6 flex justify-end space-x-3">
-                            <button onClick={() => setIsCustomModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
-                            <button onClick={handleAddCustomItem} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Add Item</button>
-                        </div>
+            {/* ADD SOURCED ITEM MODAL — Fluent 2 Dialog via GlassModal shim */}
+            <GlassModal
+                open={isCustomModalOpen}
+                onClose={() => setIsCustomModalOpen(false)}
+                title="Add sourced item"
+                description="Custom items not in your inventory. Procurement will price these after the quote is submitted."
+                size="md"
+                footer={
+                    <>
+                        <Button variant="ghost"   onClick={() => setIsCustomModalOpen(false)}>Cancel</Button>
+                        <Button variant="primary" onClick={handleAddCustomItem} disabled={!customItem.name}>Add item</Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-[12px] font-medium text-n-700 mb-1">Item name <span className="text-err">*</span></label>
+                        <input
+                            type="text"
+                            value={customItem.name}
+                            onChange={e => setCustomItem({ ...customItem, name: e.target.value })}
+                            placeholder="e.g. 360 Fisheye Camera"
+                            className="w-full h-9 px-3 text-[13px] bg-white border border-n-300 rounded-md text-n-800 placeholder:text-n-400 focus:outline-none focus:border-accent focus:shadow-focus transition-colors"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-[12px] font-medium text-n-700 mb-1">Description</label>
+                        <input
+                            type="text"
+                            value={customItem.description}
+                            onChange={e => setCustomItem({ ...customItem, description: e.target.value })}
+                            placeholder="Vendor / specs / part number…"
+                            className="w-full h-9 px-3 text-[13px] bg-white border border-n-300 rounded-md text-n-800 placeholder:text-n-400 focus:outline-none focus:border-accent focus:shadow-focus transition-colors"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-[12px] font-medium text-n-700 mb-1">Quantity</label>
+                        <input
+                            type="number"
+                            value={customItem.quantity}
+                            onChange={e => setCustomItem({ ...customItem, quantity: e.target.value })}
+                            min="1"
+                            className="w-32 h-9 px-3 text-[13px] bg-white border border-n-300 rounded-md text-n-800 focus:outline-none focus:border-accent focus:shadow-focus transition-colors font-mono-num"
+                        />
                     </div>
                 </div>
-            )}
+            </GlassModal>
             <div className="fixed z-50 flex flex-col items-end" style={{ left: bubblePos.x, top: bubblePos.y, cursor: isDragging ? 'grabbing' : 'pointer' }}>
                 {isAiChatOpen && (
                     <div className="mb-4 w-96 h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-fade-in-up transition-all transform origin-bottom-right absolute bottom-16 right-0">

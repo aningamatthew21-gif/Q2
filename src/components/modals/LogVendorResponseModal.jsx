@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import GlassModal from '../common/GlassModal';
 import Button from '../common/Button';
+import FileDropzone from '../v2/FileDropzone';
+import { Paperclip } from 'lucide-react';
 
 const INPUT_CLASS = 'p-1.5 border border-line rounded-card text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface';
 const INPUT_CLASS_WIDE = 'w-full p-2 border border-line rounded-card text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface';
@@ -35,12 +37,18 @@ const LogVendorResponseModal = ({ rfq, vendor, onSave, onCancel, defaultPrId }) 
     const [submitting, setSubmitting]       = useState(false);
     const [savedCount, setSavedCount]       = useState(0);
 
+    // Vendor-supplied attachments — at least one is required so procurement
+    // always has the signed RFQ + any quotation document on file. The first
+    // onSave call carries the attachments so the parent can persist them
+    // once and link them to all line items in this response batch.
+    const [attachments, setAttachments]     = useState([]);
+
     const updateLine = (prId, field, value) => {
         setLines(prev => prev.map(l => l.prId === prId ? { ...l, [field]: value } : l));
     };
 
     const filledLines = useMemo(() => lines.filter(l => Number(l.unitCost) > 0), [lines]);
-    const canSave = filledLines.length > 0;
+    const canSave = filledLines.length > 0 && attachments.length > 0;
 
     const grandTotal = useMemo(() =>
         lines.reduce((acc, l) => acc + (Number(l.unitCost || 0) * l.quantity) + Number(l.freight || 0), 0),
@@ -52,7 +60,19 @@ const LogVendorResponseModal = ({ rfq, vendor, onSave, onCancel, defaultPrId }) 
         setSubmitting(true);
         let saved = 0;
         try {
-            for (const l of filledLines) {
+            // Trim each attachment payload to what the backend should persist:
+            //   { name, type, size, dataUrl }
+            // The original File objects don't serialise — keep them out of the
+            // wire payload.
+            const attPayload = attachments.map(a => ({
+                name:    a.name,
+                type:    a.type,
+                size:    a.size,
+                dataUrl: a.dataUrl
+            }));
+
+            for (let i = 0; i < filledLines.length; i++) {
+                const l = filledLines[i];
                 await onSave({
                     vendorId: vendor.vendorId,
                     prId: l.prId,
@@ -66,6 +86,10 @@ const LogVendorResponseModal = ({ rfq, vendor, onSave, onCancel, defaultPrId }) 
                     receivedDate,
                     notes,
                     currency: rfq.currency || 'GHS',
+                    // Send attachments with the FIRST line only so the
+                    // parent doesn't store duplicates per line. Backend
+                    // links them at the response/RFQ level.
+                    attachments: i === 0 ? attPayload : []
                 });
                 saved++;
                 setSavedCount(saved);
@@ -76,9 +100,12 @@ const LogVendorResponseModal = ({ rfq, vendor, onSave, onCancel, defaultPrId }) 
     };
 
     const footer = (
-        <div className="flex justify-between items-center w-full">
+        <div className="flex justify-between items-center w-full gap-3">
             <p className="text-xs text-ink-muted">
-                {filledLines.length} of {lines.length} items will be saved
+                {filledLines.length} of {lines.length} items priced &middot; {attachments.length} attachment{attachments.length === 1 ? '' : 's'}
+                {filledLines.length > 0 && attachments.length === 0 && (
+                    <span className="ml-2 text-err font-medium">— attach the signed RFQ to continue</span>
+                )}
             </p>
             <div className="flex gap-3">
                 <Button variant="secondary" onClick={onCancel}>Cancel</Button>
@@ -204,6 +231,26 @@ const LogVendorResponseModal = ({ rfq, vendor, onSave, onCancel, defaultPrId }) 
                     <label className="block text-xs text-ink-muted mb-1">Notes (applies to all items)</label>
                     <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
                         className={INPUT_CLASS_WIDE} placeholder="Any vendor comments or conditions..." />
+                </div>
+
+                {/* Mandatory attachments — vendor's signed RFQ + any quotation
+                    document. At least one file is required before save. */}
+                <div>
+                    <div className="flex items-center gap-2 mb-2">
+                        <Paperclip className="w-3.5 h-3.5 text-n-500" />
+                        <label className="text-[12px] font-semibold text-n-700">
+                            Vendor attachments <span className="text-err">*</span>
+                        </label>
+                    </div>
+                    <FileDropzone
+                        value={attachments}
+                        onChange={setAttachments}
+                        accept="application/pdf,image/png,image/jpeg,image/jpg,image/heic"
+                        multiple
+                        maxFileSizeMB={10}
+                        required
+                        hint="Attach the vendor's signed RFQ. Add the quotation, technical sheets, or any covering letter as additional files. At least one file is required."
+                    />
                 </div>
 
                 {submitting && savedCount > 0 && (

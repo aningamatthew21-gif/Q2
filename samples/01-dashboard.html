@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MIDSA — Sales Dashboard (sample)</title>
+<link rel="stylesheet" href="_shell.css" />
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="shell">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">M</div>
+      <div class="brand-name">MIDSA</div>
+    </div>
+    <div class="search-wrap">
+      <i class="search-icon" data-lucide="search" style="width:14px;height:14px"></i>
+      <input class="search" placeholder="Search invoices, customers, RFQs &mdash; or press Ctrl+K" />
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-icons">
+      <button class="icon-btn" title="Notifications"><i data-lucide="bell"></i></button>
+      <button class="icon-btn" title="Help"><i data-lucide="help-circle"></i></button>
+      <button class="icon-btn" title="Settings"><i data-lucide="settings"></i></button>
+      <div class="user-pill" title="Account">
+        <div class="avatar">MA</div>
+        <span style="font-size:13px">Mattew A.</span>
+        <i data-lucide="chevron-down" style="width:14px;height:14px;color:var(--n-500)"></i>
+      </div>
+    </div>
+  </header>
+
+  <!-- LEFT NAV -->
+  <nav class="sidenav">
+    <div class="nav-section-label">Workspace</div>
+    <div class="nav-item active"><i data-lucide="layout-dashboard"></i> Dashboard</div>
+    <div class="nav-item"><i data-lucide="file-plus"></i> New Quote</div>
+
+    <div class="nav-section-label">Invoices</div>
+    <div class="nav-item"><i data-lucide="files"></i> All invoices</div>
+    <div class="nav-item"><i data-lucide="user-check"></i> My invoices</div>
+    <div class="nav-item"><i data-lucide="check-check"></i> Approvals</div>
+
+    <div class="nav-section-label">Procurement</div>
+    <div class="nav-item"><i data-lucide="clipboard-list"></i> Requisitions</div>
+    <div class="nav-item"><i data-lucide="file-text"></i> RFQs</div>
+    <div class="nav-item"><i data-lucide="factory"></i> Vendors</div>
+
+    <div class="nav-section-label">Catalogue</div>
+    <div class="nav-item"><i data-lucide="boxes"></i> Inventory</div>
+    <div class="nav-item"><i data-lucide="users"></i> Customers</div>
+    <div class="nav-item"><i data-lucide="tags"></i> Pricing</div>
+
+    <div class="nav-section-label">System</div>
+    <div class="nav-item"><i data-lucide="history"></i> Audit</div>
+    <div class="nav-item"><i data-lucide="sliders"></i> Settings</div>
+  </nav>
+
+  <!-- WORKSPACE -->
+  <main class="workspace">
+
+    <div class="crumb">
+      <a href="#">Workspace</a>
+      <span class="sep">/</span>
+      <a href="#">Sales</a>
+      <span class="sep">/</span>
+      <span style="color:var(--n-700)">Dashboard</span>
+    </div>
+
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Sales dashboard</h1>
+        <div class="page-sub">Last 30 days &middot; GHS &middot; Updated just now</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn"><i data-lucide="calendar"></i> Last 30 days</button>
+        <button class="btn"><i data-lucide="download"></i> Export</button>
+        <button class="btn btn-primary"><i data-lucide="plus"></i> New quote</button>
+      </div>
+    </div>
+
+    <!-- KPI ROW -->
+    <div class="grid grid-4" style="margin-bottom:16px">
+      <div class="card card-pad kpi">
+        <div class="kpi-label">Quotes sent</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="kpi-value">142</div>
+          <div class="kpi-delta up"><i data-lucide="trending-up" style="width:12px;height:12px"></i>+12%</div>
+        </div>
+        <canvas id="spark1" class="kpi-spark"></canvas>
+      </div>
+      <div class="card card-pad kpi">
+        <div class="kpi-label">Acceptance rate</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="kpi-value">68%</div>
+          <div class="kpi-delta up"><i data-lucide="trending-up" style="width:12px;height:12px"></i>+4 pp</div>
+        </div>
+        <canvas id="spark2" class="kpi-spark"></canvas>
+      </div>
+      <div class="card card-pad kpi">
+        <div class="kpi-label">Avg quote value</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="kpi-value">GHS 24,580</div>
+          <div class="kpi-delta down"><i data-lucide="trending-down" style="width:12px;height:12px"></i>-3%</div>
+        </div>
+        <canvas id="spark3" class="kpi-spark"></canvas>
+      </div>
+      <div class="card card-pad kpi">
+        <div class="kpi-label">Pipeline</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="kpi-value">GHS 1.20M</div>
+          <div class="kpi-delta up"><i data-lucide="trending-up" style="width:12px;height:12px"></i>+18%</div>
+        </div>
+        <canvas id="spark4" class="kpi-spark"></canvas>
+      </div>
+    </div>
+
+    <!-- CHART ROW -->
+    <div class="grid grid-2" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Revenue trend</div>
+            <div class="card-sub">Weekly &middot; last quarter</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="cmd-btn"><i data-lucide="bar-chart-3"></i></button>
+            <button class="cmd-btn"><i data-lucide="more-horizontal"></i></button>
+          </div>
+        </div>
+        <div class="card-pad" style="height:260px"><canvas id="chartRevenue"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Status mix</div>
+            <div class="card-sub">Active quotes by stage</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="cmd-btn"><i data-lucide="more-horizontal"></i></button>
+          </div>
+        </div>
+        <div class="card-pad" style="height:260px"><canvas id="chartDonut"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ACTIVITY + TOP CUSTOMERS -->
+    <div class="grid grid-2to1">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Recent activity</div>
+            <div class="card-sub">Latest 8 events</div>
+          </div>
+          <button class="cmd-btn"><i data-lucide="external-link"></i> View all</button>
+        </div>
+        <div style="overflow:hidden">
+        <table class="dt">
+          <thead>
+            <tr><th>When</th><th>Actor</th><th>Action</th><th>Subject</th><th class="num">Amount</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>09:14</td><td>aninga@…</td><td>Created quote</td><td class="mono">QT-2026-0241</td><td class="num">GHS 12,400.00</td><td><span class="badge info">Pending</span></td></tr>
+            <tr><td>09:02</td><td>controller@…</td><td>Approved invoice</td><td class="mono">INV-2026-0118</td><td class="num">GHS 84,910.50</td><td><span class="badge ok">Approved</span></td></tr>
+            <tr><td>08:48</td><td>procure@…</td><td>Recommended vendor</td><td class="mono">RFQ-2026-0014</td><td class="num">GHS 33,586.00</td><td><span class="badge warn">Pending approval</span></td></tr>
+            <tr><td>08:31</td><td>aninga@…</td><td>Sent quote</td><td class="mono">QT-2026-0240</td><td class="num">GHS 4,473,334.69</td><td><span class="badge info">Pending</span></td></tr>
+            <tr><td>Yest.</td><td>controller@…</td><td>Rejected invoice</td><td class="mono">INV-2026-0116</td><td class="num">GHS 2,180.00</td><td><span class="badge err">Rejected</span></td></tr>
+            <tr><td>Yest.</td><td>procure@…</td><td>Created RFQ</td><td class="mono">RFQ-2026-0013</td><td class="num">GHS 18,200.00</td><td><span class="badge muted">Draft</span></td></tr>
+            <tr><td>2d</td><td>aninga@…</td><td>Created PR</td><td class="mono">PR-2026-0007</td><td class="num">GHS 1,450.00</td><td><span class="badge ok">Awarded</span></td></tr>
+            <tr><td>2d</td><td>customer</td><td>Accepted quote</td><td class="mono">QT-2026-0237</td><td class="num">GHS 9,820.00</td><td><span class="badge ok">Accepted</span></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Top customers</div>
+            <div class="card-sub">By revenue (30d)</div>
+          </div>
+        </div>
+        <div class="card-pad" style="padding:8px 0">
+          <table class="dt">
+            <tbody>
+              <tr><td style="width:24px"><span style="color:var(--n-400);font-weight:600">1</span></td><td>ACME Industries</td><td class="num">GHS 184,200</td></tr>
+              <tr><td><span style="color:var(--n-400);font-weight:600">2</span></td><td>Korle-Bu Hospital</td><td class="num">GHS 142,800</td></tr>
+              <tr><td><span style="color:var(--n-400);font-weight:600">3</span></td><td>Ghana Ports</td><td class="num">GHS 128,400</td></tr>
+              <tr><td><span style="color:var(--n-400);font-weight:600">4</span></td><td>Tema Oil Refinery</td><td class="num">GHS 96,510</td></tr>
+              <tr><td><span style="color:var(--n-400);font-weight:600">5</span></td><td>VRA</td><td class="num">GHS 88,940</td></tr>
+              <tr><td><span style="color:var(--n-400);font-weight:600">6</span></td><td>MTN Ghana</td><td class="num">GHS 71,220</td></tr>
+              <tr><td><span style="color:var(--n-400);font-weight:600">7</span></td><td>UG-Legon</td><td class="num">GHS 64,800</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- STATUS BAR -->
+  <footer class="statusbar">
+    <span class="ok">&bull; Connected</span>
+    <span>Realtime: ON</span>
+    <span>Role: Sales</span>
+    <span style="margin-left:auto">v0.9.4 &middot; build 2026-04-27</span>
+  </footer>
+</div>
+
+<script>
+  lucide.createIcons();
+
+  // Fluent token mapping for charts
+  const ACCENT='#0F6CBD', N300='#C8C6C4', N100='#EDEBE9', N500='#605E5C',
+        OK='#107C10', WARN='#B7710E', ERR='#C4314B', INFO='#005FB8';
+
+  const sparkCfg = (data, color) => ({
+    type:'line',
+    data:{ labels:data.map((_,i)=>i), datasets:[{ data, borderColor:color, backgroundColor:color+'22', borderWidth:1.5, fill:true, tension:.35, pointRadius:0 }]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      scales:{ x:{display:false}, y:{display:false} },
+      plugins:{ legend:{display:false}, tooltip:{enabled:false} } }
+  });
+  new Chart(document.getElementById('spark1'), sparkCfg([8,9,11,9,12,14,15,13,17,18,16,19], ACCENT));
+  new Chart(document.getElementById('spark2'), sparkCfg([62,63,61,64,65,67,66,68,69,67,68,68], OK));
+  new Chart(document.getElementById('spark3'), sparkCfg([26,25,27,24,25,23,24,23,22,24,23,24], ERR));
+  new Chart(document.getElementById('spark4'), sparkCfg([0.9,1.0,1.0,1.05,1.0,1.1,1.12,1.15,1.18,1.16,1.19,1.20], ACCENT));
+
+  // Revenue bar chart
+  new Chart(document.getElementById('chartRevenue'), {
+    type:'bar',
+    data:{
+      labels:['W1','W2','W3','W4','W5','W6','W7','W8','W9','W10','W11','W12'],
+      datasets:[{ label:'Revenue', data:[180,210,205,240,228,260,255,280,310,295,320,345], backgroundColor:ACCENT, borderRadius:2, barThickness:14 }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      scales:{
+        x:{ grid:{display:false}, ticks:{ color:N500, font:{size:11} } },
+        y:{ grid:{ color:N100, drawBorder:false }, ticks:{ color:N500, font:{size:11}, callback:v=>'GHS '+v+'k' } }
+      },
+      plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#fff', titleColor:'#201F1E', bodyColor:'#3B3A39', borderColor:N300, borderWidth:1 } }
+    }
+  });
+  // Donut
+  new Chart(document.getElementById('chartDonut'), {
+    type:'doughnut',
+    data:{ labels:['Pending','Approved','Rejected','Draft'], datasets:[{ data:[42, 78, 9, 13], backgroundColor:[INFO, OK, ERR, N300], borderWidth:0 }] },
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'68%',
+      plugins:{ legend:{ position:'right', labels:{ boxWidth:10, boxHeight:10, padding:12, font:{size:12}, color:N500 } } } }
+  });
+</script>
+</body>
+</html>

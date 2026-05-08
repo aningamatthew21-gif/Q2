@@ -4,6 +4,7 @@ import PageHeader from '../components/common/PageHeader';
 import Button from '../components/common/Button';
 import { useRealtimePRs } from '../hooks/useRealtimePRs';
 import { useDebounce } from '../hooks/useDebounce';
+import { SortableHeader, useSortable } from '../components/v2';
 
 const STATUS_FILTERS = [
     { id: 'ALL',       label: 'All' },
@@ -58,6 +59,16 @@ const PurchaseRequisitionList = ({ navigateTo, currentUser, pageContext }) => {
         );
     }, [prs, debounced]);
 
+    // Numeric / date projections so useSortable picks the right comparator.
+    const sortablePrs = useMemo(() => filtered.map(pr => ({
+        ...pr,
+        _qty:      Number(pr.quantity) || 0,
+        _needed:   Date.parse(pr.neededBy) || 0,
+        _created:  Date.parse(pr.createdAt) || 0
+    })), [filtered]);
+    const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedPrs } =
+        useSortable(sortablePrs, '_created', 'desc');
+
     const totalPages = pagination?.totalPages || 1;
     const totalCount = pagination?.total || 0;
 
@@ -111,19 +122,19 @@ const PurchaseRequisitionList = ({ navigateTo, currentUser, pageContext }) => {
                             <table className="w-full text-left">
                                 <thead className="bg-gray-50">
                                     <tr>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase">PR #</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase">Item</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase">Customer</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase text-center">Qty</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase">Needed By</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase text-center">Reason</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase text-center">Priority</th>
-                                        <th className="p-3 font-semibold text-xs text-gray-500 uppercase text-center">Status</th>
+                                        <th className="p-3 text-left"><SortableHeader  label="PR #"     sortKey="prNumber"     current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                        <th className="p-3 text-left"><SortableHeader  label="Item"     sortKey="itemName"     current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                        <th className="p-3 text-left"><SortableHeader  label="Customer" sortKey="customerName" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                        <th className="p-3 text-center"><SortableHeader label="Qty"     sortKey="_qty"         current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                        <th className="p-3 text-left"><SortableHeader  label="Needed By" sortKey="_needed"     current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                        <th className="p-3 text-center"><SortableHeader label="Reason"  sortKey="reason"       current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                        <th className="p-3 text-center"><SortableHeader label="Priority" sortKey="priority"    current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                        <th className="p-3 text-center"><SortableHeader label="Status"  sortKey="status"       current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
                                         <th className="p-3 font-semibold text-xs text-gray-500 uppercase"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filtered.map(pr => (
+                                    {sortedPrs.map(pr => (
                                         <tr key={pr.id} className="border-b hover:bg-gray-50">
                                             <td className="p-3 font-mono text-xs">{pr.prNumber || pr.id.slice(0, 8)}</td>
                                             <td className="p-3 font-medium">{pr.itemName}</td>

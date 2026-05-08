@@ -13,6 +13,7 @@ import { useRealtimeInventory } from '../hooks/useRealtimeInventory';
 import { useDebounce } from '../hooks/useDebounce';
 import { useActivityLog } from '../hooks/useActivityLog';
 import { useApp } from '../context/AppContext';
+import { SortableHeader, useSortable } from '../components/v2';
 
 const InventoryManagement = ({ navigateTo, userId }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -236,6 +237,13 @@ const InventoryManagement = ({ navigateTo, userId }) => {
         return (item.id || '').toLowerCase().includes(q) || (item.name || '').toLowerCase().includes(q);
     });
 
+    // Sortable header state — clicking a column cycles asc → desc → none.
+    // We project numeric fields (stock, restockLimit, price) onto themselves
+    // since they're already numbers; useSortable's default detection covers
+    // strings via locale-aware comparison.
+    const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedInventory } =
+        useSortable(filteredInventory, null, 'asc');
+
     return (<>
         {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
         {isModalOpen && <ItemModal item={editingItem} onSave={handleSaveItem} onClose={handleCloseModal} />}
@@ -260,13 +268,20 @@ const InventoryManagement = ({ navigateTo, userId }) => {
                         <select value={invField} onChange={(e) => setInvField(e.target.value)} className="p-2 border border-line rounded-md text-sm"><option value="all">All</option>
                             <option value="sku">SKU</option><option value="name">Name</option></select></div></div></div><div className="overflow-x-auto">
                 <table className="w-full text-left">
-                    <thead className="bg-surface-sunken"><tr><th className="p-4 font-semibold text-sm">SKU</th>
-                        <th className="p-4 font-semibold text-sm">Item Name</th><th className="p-4 font-semibold text-sm">Vendor</th>
-                        <th className="p-4 font-semibold text-sm text-center">Type</th><th className="p-4 font-semibold text-sm text-center">Curr</th>
-                        <th className="p-4 font-semibold text-sm text-center">Stock</th><th className="p-4 font-semibold text-sm text-center">Restock At</th>
-                        <th className="p-4 font-semibold text-sm text-right">Price</th><th className="p-4 font-semibold text-sm text-center">Actions</th></tr>
+                    <thead className="bg-surface-sunken">
+                        <tr>
+                            <th className="p-4 text-left"><SortableHeader  label="SKU"        sortKey="id"          current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                            <th className="p-4 text-left"><SortableHeader  label="Item Name"  sortKey="name"        current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                            <th className="p-4 text-left"><SortableHeader  label="Vendor"     sortKey="vendor"      current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                            <th className="p-4 text-center"><SortableHeader label="Type"      sortKey="itemType"    current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                            <th className="p-4 text-center"><SortableHeader label="Curr"      sortKey="currency"    current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                            <th className="p-4 text-center"><SortableHeader label="Stock"     sortKey="stock"       current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                            <th className="p-4 text-center"><SortableHeader label="Restock At" sortKey="restockLimit" current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                            <th className="p-4 text-right"><SortableHeader  label="Price"     sortKey="price"       current={sortKey} dir={sortDir} onToggle={toggleSort} align="right" /></th>
+                            <th className="p-4 font-semibold text-sm text-center text-n-600 uppercase tracking-wider text-[11px]">Actions</th>
+                        </tr>
                     </thead>
-                    <tbody>{filteredInventory.map((item) => (<tr key={item.id} className="border-b hover:bg-surface-sunken"><td className="p-4 text-sm">{item.id}</td>
+                    <tbody>{sortedInventory.map((item) => (<tr key={item.id} className="border-b hover:bg-surface-sunken"><td className="p-4 text-sm">{item.id}</td>
                         <td className="p-4 font-medium">{item.name}</td><td className="p-4 text-sm">{item.vendor}</td>
                         <td className="p-4 text-sm text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${(item.itemType || 'Hardware') === 'Hardware' ? 'bg-blue-100 text-blue-700' : (item.itemType || 'Hardware') === 'Software' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{item.itemType || 'Hardware'}</span></td>
                         <td className="p-4 text-sm text-center text-ink-muted">{item.currency || 'GHS'}</td>

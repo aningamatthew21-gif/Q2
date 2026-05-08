@@ -17,6 +17,7 @@ import EscalationBanner from '../components/procurement/EscalationBanner';
 import { PDFService } from '../services/PDFService';
 import { logActivity } from '../utils/logger';
 import { useApp } from '../context/AppContext';
+import { usePrompt } from '../components/v2/PromptDialog';
 
 const StatusBadge = ({ value }) => (
     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -34,6 +35,7 @@ const StatusBadge = ({ value }) => (
 const RFQDetail = ({ navigateTo, pageContext, currentUser }) => {
     const rfqId = pageContext;
     const { userEmail } = useApp();
+    const { askText } = usePrompt();
     const username = userEmail ? userEmail.split('@')[0] : 'System';
 
     const [rfq, setRfq]                       = useState(null);
@@ -331,14 +333,22 @@ MIDSA Procurement`;
     };
 
     const handleCancel = async () => {
-        const reason = window.prompt(
-            `Reason for cancelling RFQ ${rfq.rfqNumber}?\n(Leave blank for default)`,
-            'No longer required'
-        );
-        if (reason === null) return; // user clicked Cancel in the browser prompt
+        const reason = await askText({
+            title:        `Cancel ${rfq.rfqNumber}?`,
+            description:  'Vendors who already responded will see the RFQ as cancelled. The reason is recorded in the audit trail. Leaving it blank uses the default "No longer required".',
+            label:        'Reason for cancellation',
+            defaultValue: 'No longer required',
+            placeholder:  'No longer required',
+            multiline:    true,
+            maxLength:    500,
+            confirmLabel: 'Cancel RFQ',
+            confirmTone:  'danger',
+            cancelLabel:  'Keep RFQ'
+        });
+        if (reason === null) return;
         setConfirmCancel(false);
         try {
-            const res = await api.delete(`/rfqs/${rfqId}`, { data: { reason: reason.trim() || 'No longer required' } });
+            const res = await api.delete(`/rfqs/${rfqId}`, { data: { reason: (reason || '').trim() || 'No longer required' } });
             if (!res.success) throw new Error(res.error);
             await logActivity(username, 'Cancelled RFQ', `${rfq.rfqNumber}: ${reason}`);
             setNotification({ type: 'success', message: 'RFQ cancelled.' });

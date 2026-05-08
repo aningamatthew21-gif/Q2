@@ -3,8 +3,10 @@ import api from '../../api';
 import Icon from '../common/Icon';
 import Notification from '../common/Notification';
 import { useActivityLog } from '../../hooks/useActivityLog';
+import { usePrompt } from '../v2/PromptDialog';
 
 const SignaturesSettings = ({ userId }) => {
+    const { askConfirm } = usePrompt();
     const { log } = useActivityLog();
     const [signatures, setSignatures] = useState([]);
     const [newSignature, setNewSignature] = useState({
@@ -247,7 +249,13 @@ const SignaturesSettings = ({ userId }) => {
 
     // FIXED DELETION LOGIC
     const handleDeleteSignature = async (signatureId) => {
-        if (!window.confirm("Delete this signature? This cannot be undone.")) return;
+        const ok = await askConfirm({
+            title:        'Delete this signature?',
+            description:  'This cannot be undone. Approvals already signed with it stay valid — only future use is removed.',
+            confirmLabel: 'Delete signature',
+            confirmTone:  'danger'
+        });
+        if (!ok) return;
 
         try {
             // 1. Fetch FULL list first

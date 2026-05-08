@@ -8,6 +8,7 @@ import Notification from '../components/common/Notification';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
 import { logActivity } from '../utils/logger';
 import { useApp } from '../context/AppContext';
+import { usePrompt } from '../components/v2/PromptDialog';
 
 const PriorityBadge = ({ value }) => (
     <span className={`px-2 py-1 rounded-full text-xs ${
@@ -36,6 +37,7 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
     const [notification, setNotification] = useState(null);
     const [editingPriority, setEditingPriority] = useState(null);
     const { userEmail } = useApp();
+    const { askText, askConfirm } = usePrompt();
     const username = userEmail ? userEmail.split('@')[0] : 'System';
 
     const role = currentUser?.role;
@@ -91,13 +93,21 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
     };
 
     const handleCancel = async () => {
-        const reason = window.prompt(
-            `Reason for cancelling PR ${pr.prNumber}?\n(Leave blank for default)`,
-            'No longer required'
-        );
-        if (reason === null) return; // user clicked Cancel in the browser prompt
+        const reason = await askText({
+            title:        `Cancel ${pr.prNumber}?`,
+            description:  'The reason will be saved on the PR record and visible in the activity history. Leaving it blank uses the default "No longer required".',
+            label:        'Reason for cancellation',
+            defaultValue: 'No longer required',
+            placeholder:  'No longer required',
+            multiline:    true,
+            maxLength:    300,
+            confirmLabel: 'Cancel PR',
+            confirmTone:  'danger',
+            cancelLabel:  'Keep PR'
+        });
+        if (reason === null) return;
         try {
-            await api.post(`/purchase-requisitions/${prId}/cancel`, { reason: reason.trim() || 'No longer required' });
+            await api.post(`/purchase-requisitions/${prId}/cancel`, { reason: (reason || '').trim() || 'No longer required' });
             await logActivity(username, 'Cancelled PR', pr.prNumber);
             setNotification({ type: 'success', message: 'PR cancelled.' });
         } catch (err) {
@@ -106,7 +116,13 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
     };
 
     const handleMarkFulfilled = async () => {
-        if (!window.confirm(`Mark PR ${pr.prNumber} as Fulfilled? This confirms the item has been received.`)) return;
+        const ok = await askConfirm({
+            title:        `Mark ${pr.prNumber} as fulfilled?`,
+            description:  'Confirms the item has been received from the vendor. This action cannot be undone.',
+            confirmLabel: 'Mark fulfilled',
+            confirmTone:  'primary'
+        });
+        if (!ok) return;
         try {
             await api.put(`/purchase-requisitions/${prId}`, { status: 'FULFILLED' });
             await logActivity(username, 'Marked PR Fulfilled', pr.prNumber);

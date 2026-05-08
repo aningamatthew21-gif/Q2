@@ -12,6 +12,7 @@ import { useRealtimeCustomers } from '../hooks/useRealtimeCustomers';
 import { useDebounce } from '../hooks/useDebounce';
 import { useActivityLog } from '../hooks/useActivityLog';
 import { useApp } from '../context/AppContext';
+import { SortableHeader, useSortable } from '../components/v2';
 
 const CustomerManagement = ({ navigateTo, userId }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -162,6 +163,9 @@ const CustomerManagement = ({ navigateTo, userId }) => {
         );
     }, [customers, debouncedSearchTerm]);
 
+    const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedCustomers } =
+        useSortable(filteredCustomers, 'name', 'asc');
+
     // Handle customer deletion
     const handleDeleteCustomer = async (customer) => {
         try {
@@ -259,15 +263,15 @@ const CustomerManagement = ({ navigateTo, userId }) => {
                         <table className="w-full text-left">
                             <thead className="bg-surface-sunken">
                                 <tr>
-                                    <th className="p-3 font-semibold">ID</th>
-                                    <th className="p-3 font-semibold">Name</th>
-                                    <th className="p-3 font-semibold">Contact</th>
-                                    <th className="p-3 font-semibold">Email</th>
-                                    <th className="p-3 font-semibold text-center">Actions</th>
+                                    <th className="p-3 text-left"><SortableHeader label="ID"      sortKey="id"            current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-left"><SortableHeader label="Name"    sortKey="name"          current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-left"><SortableHeader label="Contact" sortKey="contactPerson" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-left"><SortableHeader label="Email"   sortKey="contactEmail"  current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 font-semibold text-[11px] text-n-600 uppercase tracking-wider text-center">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredCustomers.map(c => (
+                                {sortedCustomers.map(c => (
                                     <tr key={c.id} className="border-b hover:bg-surface-sunken">
                                         <td className="p-3 text-xs">{c.id}</td>
                                         <td className="p-3 font-medium">{c.name}</td>

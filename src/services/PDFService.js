@@ -1193,11 +1193,66 @@ export class PDFService {
             y += 4;
         });
 
+        // --- VENDOR ATTESTATION / SIGNATURE BLOCK ---
+        // Required for vendor sign-off. Procurement attaches the signed PDF
+        // when logging the vendor's response. The block lives between the
+        // instructions and the page footer; if there isn't enough vertical
+        // room left, push it onto a new page.
+        y += 4;
+        const sigBlockHeight = 56;
+        if (y + sigBlockHeight > 270) { pdf.addPage(); y = 20; }
+
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(0, 0, 0);
+        pdf.text('Vendor Attestation & Signature', leftMargin, y);
+        y += 4;
+        pdf.setFontSize(7.8);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(80, 80, 80);
+        const attestation =
+            'I confirm the pricing, lead time, and delivery terms above are accurate and binding for at least ' +
+            '30 days from the date below. I confirm I am authorized to commit on behalf of the vendor named on this RFQ.';
+        const attestLines = pdf.splitTextToSize(attestation, rightEdge - leftMargin);
+        pdf.text(attestLines, leftMargin, y);
+        y += attestLines.length * 3.5 + 4;
+
+        // Signature grid: 4 cells in two rows × two columns
+        const sigCellH   = 18;
+        const sigColW    = (rightEdge - leftMargin) / 2;
+        pdf.setDrawColor(160, 160, 160);
+        pdf.setLineWidth(0.2);
+
+        const drawSigCell = (x, yy, label, height = sigCellH) => {
+            pdf.rect(x, yy, sigColW - 2, height);
+            pdf.setFontSize(6.8);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setTextColor(110, 110, 110);
+            pdf.text(label, x + 2, yy + 4);
+        };
+
+        drawSigCell(leftMargin,             y, 'Authorized Name (printed)');
+        drawSigCell(leftMargin + sigColW,    y, 'Position / Title');
+        const row2Y = y + sigCellH + 2;
+        drawSigCell(leftMargin,             row2Y, 'Signature', 22);
+        drawSigCell(leftMargin + sigColW,    row2Y, 'Date  &  Company stamp', 22);
+
+        y = row2Y + 22 + 4;
+        pdf.setFontSize(7);
+        pdf.setFont('helvetica', 'italic');
+        pdf.setTextColor(120, 120, 120);
+        pdf.text(
+            'Please sign, scan, and email this completed RFQ together with any supporting quotation document.',
+            leftMargin, y
+        );
+
         // --- FOOTER ---
-        const footerY = 280;
+        const footerY = 287;
         pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.2);
         pdf.line(leftMargin, footerY - 3, rightEdge, footerY - 3);
         pdf.setFontSize(7);
+        pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(120, 120, 120);
         const companyName = rfqData.companySettings?.locationAddress?.companyName || 'Margins ID Systems Applications Ltd.';
         pdf.text(`${companyName} — Accra, Ghana`, pageWidth / 2, footerY, { align: 'center' });

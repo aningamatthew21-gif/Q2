@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MIDSA — RFQ-2026-0014 (sample)</title>
+<link rel="stylesheet" href="_shell.css" />
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  .with-rail { display:grid; grid-template-columns: 1fr 320px; gap:16px; align-items:start; }
+  @media (max-width:1200px){ .with-rail { grid-template-columns: 1fr; } }
+  .vendor-card { display:grid; grid-template-columns: 24px 1fr auto; gap:12px; padding: 12px; border:1px solid var(--n-200); border-radius:6px; background:#fff; }
+  .vendor-card.winner { border-color: var(--accent); background: var(--accent-soft); }
+  .vendor-radio { width:16px; height:16px; border-radius:50%; border:2px solid var(--n-300); margin-top:2px; flex-shrink:0; }
+  .vendor-card.winner .vendor-radio { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px #fff; }
+  .vendor-meta { display:flex; gap:24px; margin-top: 8px; font-size: 12px; color: var(--n-500); }
+  .vendor-meta b { color: var(--n-800); font-weight: 600; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 12.5px; }
+  .compare-cell { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+  .compare-cell.best { color: var(--ok); font-weight:600; background: var(--ok-soft); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">M</div>
+      <div class="brand-name">MIDSA</div>
+    </div>
+    <div class="search-wrap">
+      <i class="search-icon" data-lucide="search" style="width:14px;height:14px"></i>
+      <input class="search" placeholder="Search invoices, customers, RFQs &mdash; or press Ctrl+K" />
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-icons">
+      <button class="icon-btn"><i data-lucide="bell"></i></button>
+      <button class="icon-btn"><i data-lucide="help-circle"></i></button>
+      <button class="icon-btn"><i data-lucide="settings"></i></button>
+      <div class="user-pill">
+        <div class="avatar">MA</div>
+        <span style="font-size:13px">Mattew A.</span>
+        <i data-lucide="chevron-down" style="width:14px;height:14px;color:var(--n-500)"></i>
+      </div>
+    </div>
+  </header>
+
+  <!-- LEFT NAV -->
+  <nav class="sidenav">
+    <div class="nav-section-label">Workspace</div>
+    <div class="nav-item"><i data-lucide="layout-dashboard"></i> Dashboard</div>
+    <div class="nav-item"><i data-lucide="file-plus"></i> New Quote</div>
+    <div class="nav-section-label">Invoices</div>
+    <div class="nav-item"><i data-lucide="files"></i> All invoices</div>
+    <div class="nav-item"><i data-lucide="user-check"></i> My invoices</div>
+    <div class="nav-item"><i data-lucide="check-check"></i> Approvals</div>
+    <div class="nav-section-label">Procurement</div>
+    <div class="nav-item"><i data-lucide="clipboard-list"></i> Requisitions</div>
+    <div class="nav-item active"><i data-lucide="file-text"></i> RFQs</div>
+    <div class="nav-item"><i data-lucide="factory"></i> Vendors</div>
+    <div class="nav-section-label">Catalogue</div>
+    <div class="nav-item"><i data-lucide="boxes"></i> Inventory</div>
+    <div class="nav-item"><i data-lucide="users"></i> Customers</div>
+    <div class="nav-item"><i data-lucide="tags"></i> Pricing</div>
+    <div class="nav-section-label">System</div>
+    <div class="nav-item"><i data-lucide="history"></i> Audit</div>
+    <div class="nav-item"><i data-lucide="sliders"></i> Settings</div>
+  </nav>
+
+  <!-- WORKSPACE -->
+  <main class="workspace">
+    <div class="crumb">
+      <a href="#">Workspace</a><span class="sep">/</span>
+      <a href="#">Procurement</a><span class="sep">/</span>
+      <a href="#">RFQs</a><span class="sep">/</span>
+      <span style="color:var(--n-700)" class="mono">RFQ-2026-0014</span>
+    </div>
+
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">RFQ-2026-0014 &middot; Q2 Reorder</h1>
+        <div class="page-sub" style="display:flex;align-items:center;gap:10px;margin-top:6px">
+          <span class="badge warn">Pending Procurement Head Approval</span>
+          <span>Created 2026-04-19 by procurement@…</span>
+          <span>&middot; 4 responses from 2 vendors</span>
+        </div>
+      </div>
+      <div class="page-actions">
+        <button class="btn"><i data-lucide="file-text"></i> PDFs</button>
+        <button class="btn btn-danger"><i data-lucide="rotate-ccw"></i> Reject</button>
+        <button class="btn btn-primary"><i data-lucide="check"></i> Approve award</button>
+      </div>
+    </div>
+
+    <div class="with-rail">
+      <!-- MAIN COLUMN -->
+      <div class="card" style="overflow:hidden">
+        <div class="tabs">
+          <div class="tab">Summary</div>
+          <div class="tab">Line items (2)</div>
+          <div class="tab active">Vendor responses</div>
+          <div class="tab">Comparison</div>
+          <div class="tab">Activity</div>
+        </div>
+
+        <div class="card-pad">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div>
+              <div class="card-title">Recommended winner</div>
+              <div class="card-sub">Wins on lowest total cost, fastest lead time, full line coverage</div>
+            </div>
+            <div style="font-size:12px;color:var(--n-500)">Score <b style="color:var(--n-800);font-variant-numeric:tabular-nums">87.0 / 100</b></div>
+          </div>
+
+          <div style="display:grid;gap:10px">
+            <div class="vendor-card winner">
+              <div class="vendor-radio"></div>
+              <div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="font-weight:600;color:var(--n-800)">KOJO AMFO</div>
+                  <span class="badge ok" style="font-size:10.5px">Winner</span>
+                  <i data-lucide="star" style="width:14px;height:14px;color:#B7710E;fill:#B7710E"></i>
+                </div>
+                <div class="vendor-meta">
+                  <span>Total <b>GHS 33,586.00</b></span>
+                  <span>Lead time <b>8d</b></span>
+                  <span>Lines <b>2 / 2</b></span>
+                  <span>Submitted <b>2026-04-20</b></span>
+                </div>
+              </div>
+              <button class="btn"><i data-lucide="external-link"></i> Open</button>
+            </div>
+
+            <div class="vendor-card">
+              <div class="vendor-radio"></div>
+              <div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="font-weight:600;color:var(--n-800)">MAM Trading</div>
+                  <span class="badge muted" style="font-size:10.5px">Responded</span>
+                </div>
+                <div class="vendor-meta">
+                  <span>Total <b>GHS 42,100.00</b></span>
+                  <span>Lead time <b>19d</b></span>
+                  <span>Lines <b>2 / 2</b></span>
+                  <span>Submitted <b>2026-04-19</b></span>
+                </div>
+              </div>
+              <button class="btn"><i data-lucide="external-link"></i> Open</button>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div class="card-title">Detailed comparison</div>
+            <div style="font-size:12px;color:var(--n-500)">Best value: <b style="color:var(--ok)">KOJO AMFO</b></div>
+          </div>
+
+          <table class="dt">
+            <thead>
+              <tr><th>Vendor</th><th class="num">Trial item 1</th><th class="num">In need try</th><th class="num">Total</th><th>Coverage</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b>KOJO AMFO</b></td>
+                <td class="num compare-cell best">500.00</td>
+                <td class="num compare-cell best">1,000.00</td>
+                <td class="num compare-cell best">33,586.00</td>
+                <td>2 / 2</td>
+                <td><span class="badge ok">Winner</span></td>
+              </tr>
+              <tr>
+                <td>MAM Trading</td>
+                <td class="num compare-cell">640.00</td>
+                <td class="num compare-cell">1,280.00</td>
+                <td class="num compare-cell">42,100.00</td>
+                <td>2 / 2</td>
+                <td><span class="badge muted">Responded</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RIGHT RAIL -->
+      <aside style="display:flex;flex-direction:column;gap:16px;position:sticky;top:64px">
+        <div class="card card-pad">
+          <div class="card-title" style="margin-bottom:8px">Summary</div>
+          <div class="summary-row"><span class="lbl">Currency</span><span class="val">GHS</span></div>
+          <div class="summary-row"><span class="lbl">Submission deadline</span><span class="val">2026-04-21</span></div>
+          <div class="summary-row"><span class="lbl">Delivery deadline</span><span class="val">2026-04-30</span></div>
+          <div class="summary-row"><span class="lbl">Vendors invited</span><span class="val">2</span></div>
+          <div class="summary-row"><span class="lbl">Responses received</span><span class="val">4 / 4 lines</span></div>
+          <div class="summary-row"><span class="lbl">Recommended</span><span class="val">KOJO AMFO ★</span></div>
+          <div class="summary-row"><span class="lbl">Total award</span><span class="val tabular" style="font-weight:600">GHS 33,586.00</span></div>
+        </div>
+
+        <div class="card card-pad">
+          <div class="card-title" style="margin-bottom:8px">Notes</div>
+          <p class="muted" style="margin:0;font-size:13px;line-height:1.55">Recommended on 2026-04-20 by aningamatthew21+procure@gmail.com.<br><br>Wins on lowest total cost, fastest lead time, full line coverage.</p>
+        </div>
+
+        <div class="card card-pad">
+          <div class="card-title" style="margin-bottom:8px">Quick actions</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button class="btn"><i data-lucide="file-text"></i> Preview PDFs</button>
+            <button class="btn"><i data-lucide="copy"></i> Duplicate RFQ</button>
+            <button class="btn btn-danger"><i data-lucide="x-circle"></i> Cancel RFQ</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="statusbar">
+    <span style="color:var(--ok)">&bull; Connected</span>
+    <span>Realtime: ON</span>
+    <span>Role: Procurement</span>
+    <span style="margin-left:auto" class="mono">RFQ-2026-0014</span>
+  </footer>
+</div>
+<script>lucide.createIcons();</script>
+</body>
+</html>

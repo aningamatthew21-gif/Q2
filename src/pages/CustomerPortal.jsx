@@ -1,317 +1,291 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import {
+  ArrowLeft, Search, FileText, Eye, Mail, Phone, MapPin, User,
+  TrendingUp, FileQuestion, Pencil, ExternalLink, Calendar, AlertCircle
+} from 'lucide-react';
 import api from '../api';
-import Icon from '../components/common/Icon';
 import { formatCurrency } from '../utils/formatting';
 import PreviewModal from '../components/PreviewModal';
 import CustomerModal from '../components/modals/CustomerModal';
 import { useRealtimeInvoices } from '../hooks/useRealtimeInvoices';
+import {
+  Breadcrumb, PageTitle, Card, Button, MetricTile,
+  StatusBadge, Tabs, FilterChips, EmptyState, SortableHeader, useSortable
+} from '../components/v2';
+import { staggerContainer, listContainer, listRow } from '../components/v2/motion';
 
-const StatCard = ({ title, value, subtext, icon, color }) => (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-start justify-between">
-        <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
-            <h3 className="text-2xl font-bold text-gray-900">{value}</h3>
-            {subtext && <p className="text-xs text-gray-400 mt-1">{subtext}</p>}
-        </div>
-        <div className={`p-3 rounded-lg ${color}`}>
-            <Icon id={icon} className="w-6 h-6 text-white" />
-        </div>
-    </div>
-);
+/**
+ * CustomerPortal — Fluent 2 redesign.
+ *
+ * Used both as a controller drilling into a customer record AND as a
+ * pre-auth public view (rendered chromeless via AppContext.isChromeless).
+ * Hooks, data flow, and PreviewModal wiring stay identical to v1; only
+ * the visual layer flips to the v2 design system.
+ *
+ * Layout:
+ *   - Sticky header card (customer name, contact chips, Edit button)
+ *   - 4 metric tiles: total invoices, total value, open, pending
+ *   - Tab strip + search + filter chips
+ *   - Sortable invoice table with row-click → PdfViewer preview
+ *   - Empty state + loading skeleton
+ *
+ * Note: kept on its own min-h-screen wrapper because it's used outside the
+ * AppShell (chromeless). Background uses tokens so dark mode flips cleanly.
+ */
 
-const StatusBadge = ({ status }) => {
-    const styles = {
-        'Approved': 'bg-blue-100 text-blue-800 border-blue-200', // Ready to Send (Internal)
-        'Awaiting Acceptance': 'bg-yellow-100 text-yellow-800 border-yellow-200', // Action Required
-        'Customer Accepted': 'bg-green-100 text-green-800 border-green-200', // Revenue Recognized
-        'Paid': 'bg-green-100 text-green-800 border-green-200',
-        'Pending Approval': 'bg-gray-100 text-gray-800 border-gray-200',
-        'Rejected': 'bg-red-100 text-red-800 border-red-200',
-        'Customer Rejected': 'bg-red-100 text-red-800 border-red-200',
-        'Draft': 'bg-gray-100 text-gray-800 border-gray-200'
-    };
-    const defaultStyle = 'bg-gray-100 text-gray-800 border-gray-200';
+const CustomerPortal = ({ navigateTo, customerId }) => {
+  const [customer, setCustomer] = useState(null);
+  const [activeTab, setActiveTab] = useState('All');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [previewPayload, setPreviewPayload] = useState(null);
+  const [isEditingCustomer, setIsEditingCustomer] = useState(false);
+  const { data: invoices, loading: invoicesLoading } = useRealtimeInvoices(null, customerId);
 
+  useEffect(() => {
+    if (!customerId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api.get(`/customers/${customerId}`);
+        if (!cancelled && response.success) setCustomer(response.data);
+      } catch (error) { console.error('Error fetching customer:', error); }
+    })();
+    return () => { cancelled = true; };
+  }, [customerId]);
+
+  const stats = useMemo(() => {
+    const total = invoices.length;
+    const totalValue = invoices.reduce((sum, inv) => sum + (Number(inv.total) || 0), 0);
+    const approvedCount = invoices.filter(inv =>
+      inv.status === 'Awaiting Acceptance' || inv.status === 'Customer Accepted' || inv.status === 'Paid'
+    ).length;
+    const pendingCount = invoices.filter(inv => inv.status === 'Pending Approval').length;
+    return { total, totalValue, approvedCount, pendingCount };
+  }, [invoices]);
+
+  const tabs = useMemo(() => [
+    { id: 'All',      label: 'All',      count: invoices.length },
+    { id: 'Approved', label: 'Approved', count: invoices.filter(inv => inv.status === 'Awaiting Acceptance' || inv.status === 'Customer Accepted' || inv.status === 'Paid').length },
+    { id: 'Pending',  label: 'Pending',  count: invoices.filter(inv => inv.status === 'Pending Approval').length },
+    { id: 'Rejected', label: 'Rejected', count: invoices.filter(inv => inv.status === 'Rejected' || inv.status === 'Customer Rejected').length }
+  ], [invoices]);
+
+  const filteredInvoices = useMemo(() => {
+    return invoices.filter(inv => {
+      const matchesTab = activeTab === 'All' ||
+        (activeTab === 'Approved' && (inv.status === 'Awaiting Acceptance' || inv.status === 'Customer Accepted' || inv.status === 'Paid')) ||
+        (activeTab === 'Pending'  && inv.status === 'Pending Approval') ||
+        (activeTab === 'Rejected' && (inv.status === 'Rejected' || inv.status === 'Customer Rejected'));
+      const matchesSearch = !searchTerm ||
+        inv.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (inv.date && inv.date.includes(searchTerm));
+      return matchesTab && matchesSearch;
+    });
+  }, [invoices, activeTab, searchTerm]);
+
+  const sortableRows = useMemo(() => filteredInvoices.map(inv => ({
+    ...inv,
+    _amount: Number(inv.total) || 0,
+    _date:   Date.parse(inv.date) || 0
+  })), [filteredInvoices]);
+  const { sortKey, sortDir, toggle: toggleSort, sortedRows } = useSortable(sortableRows, '_date', 'desc');
+
+  const handleSaveCustomer = async (updatedData) => {
+    try {
+      await api.put(`/customers/${customerId}`, updatedData);
+      setCustomer({ ...customer, ...updatedData });
+      setIsEditingCustomer(false);
+    } catch (error) {
+      console.error('Error updating customer:', error);
+    }
+  };
+
+  const handleViewInvoice = (inv) => {
+    setPreviewPayload({
+      ...inv,
+      invoiceId: inv.id,
+      customer:  customer,
+      items:     inv.items || inv.lineItems || [],
+      subtotal:  inv.total,
+      taxes:     inv.taxBreakdown || inv.taxes || inv.taxConfiguration || [],
+      totals:    inv.totals || { grandTotal: inv.total }
+    });
+  };
+
+  if (!customer) {
     return (
-        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${styles[status] || defaultStyle}`}>
-            {status}
-        </span>
-    );
-};
-
-const CustomerPortal = ({ navigateTo, customerId, userId }) => {
-    const [customer, setCustomer] = useState(null);
-    const [activeTab, setActiveTab] = useState('All');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [previewPayload, setPreviewPayload] = useState(null);
-    const [isEditingCustomer, setIsEditingCustomer] = useState(false);
-    const { data: invoices, loading: invoicesLoading } = useRealtimeInvoices(null, customerId);
-
-    useEffect(() => {
-        if (!customerId) return;
-        
-        const fetchCustomer = async () => {
-            try {
-                const response = await api.get(`/customers/${customerId}`);
-                if (response.success) {
-                    setCustomer(response.data);
-                }
-            } catch (error) {
-                console.error("Error fetching customer:", error);
-            }
-        };
-
-        fetchCustomer();
-    }, [customerId]);
-
-    // Calculate Stats
-    const stats = useMemo(() => {
-        const total = invoices.length;
-        const totalValue = invoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
-        // "Approved" for customer means anything sent to them or accepted
-        const approvedCount = invoices.filter(inv =>
-            inv.status === 'Awaiting Acceptance' ||
-            inv.status === 'Customer Accepted' ||
-            inv.status === 'Paid'
-        ).length;
-        const pendingCount = invoices.filter(inv => inv.status === 'Pending Approval').length;
-
-        return { total, totalValue, approvedCount, pendingCount };
-    }, [invoices]);
-
-    // Filter Invoices
-    const filteredInvoices = useMemo(() => {
-        return invoices.filter(inv => {
-            const matchesTab = activeTab === 'All' ||
-                (activeTab === 'Approved' && (inv.status === 'Awaiting Acceptance' || inv.status === 'Customer Accepted' || inv.status === 'Paid')) ||
-                (activeTab === 'Pending' && inv.status === 'Pending Approval') ||
-                (activeTab === 'Rejected' && (inv.status === 'Rejected' || inv.status === 'Customer Rejected'));
-
-            const matchesSearch = inv.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (inv.date && inv.date.includes(searchTerm));
-
-            return matchesTab && matchesSearch;
-        }).sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort by date desc
-    }, [invoices, activeTab, searchTerm]);
-
-    const handleSaveCustomer = async (updatedData) => {
-        try {
-            await api.put(`/customers/${customerId}`, updatedData);
-            setCustomer({ ...customer, ...updatedData });
-            setIsEditingCustomer(false);
-        } catch (error) {
-            console.error("Error updating customer:", error);
-            alert("Failed to update customer details.");
-        }
-    };
-
-    const handleViewInvoice = (inv) => {
-        // Construct payload for PreviewModal/PDFService
-        const payload = {
-            ...inv,
-            invoiceId: inv.id,
-            customer: customer, // Pass full customer object
-            items: inv.items || inv.lineItems || [],
-            subtotal: inv.total, // Fallback if subtotal missing
-            // Ensure taxes and totals are passed if available
-            taxes: inv.taxBreakdown || inv.taxes || inv.taxConfiguration || [],
-            totals: inv.totals || { grandTotal: inv.total }
-        };
-        setPreviewPayload(payload);
-    };
-
-    if (!customer) return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-n-50">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-full border-2 border-n-200 border-t-accent animate-spin" />
+          <div className="text-[13px] text-n-500">Loading customer…</div>
         </div>
+      </div>
     );
+  }
 
-    return (
-        <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  return (
+    <div className="min-h-screen bg-n-50 text-n-700 font-sans">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
 
-                {/* Header Section */}
-                <div className="mb-8">
-                    <button
-                        onClick={() => navigateTo('customers')}
-                        className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors"
-                    >
-                        <Icon id="arrow-left" className="w-4 h-4 mr-1" /> Back to Customer List
-                    </button>
+        {/* BACK link (only when used inside the app) */}
+        {navigateTo && (
+          <Breadcrumb
+            items={[
+              { label: 'Workspace',  onClick: () => navigateTo('controllerDashboard') },
+              { label: 'Customers',  onClick: () => navigateTo('customers') },
+              customer.name
+            ]}
+          />
+        )}
 
-                    <div className="flex flex-col md:flex-row md:items-center justify-between bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                        <div>
-                            <h1 className="text-3xl font-bold text-gray-900">{customer.name}</h1>
-                            <div className="mt-2 flex flex-wrap gap-4 text-sm text-gray-500">
-                                <div className="flex items-center">
-                                    <Icon id="user" className="w-4 h-4 mr-2 opacity-70" />
-                                    {customer.contactPerson || 'No Contact Person'}
-                                </div>
-                                <div className="flex items-center">
-                                    <Icon id="envelope" className="w-4 h-4 mr-2 opacity-70" />
-                                    {customer.contactEmail || 'No Email'}
-                                </div>
-                                <div className="flex items-center">
-                                    <Icon id="location-marker" className="w-4 h-4 mr-2 opacity-70" />
-                                    {customer.location || 'No Location'}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="mt-4 md:mt-0">
-                            <button
-                                onClick={() => setIsEditingCustomer(true)}
-                                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                            >
-                                Edit Customer
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <StatCard
-                        title="Total Invoices"
-                        value={stats.total}
-                        icon="document-text"
-                        color="bg-blue-500"
-                    />
-                    <StatCard
-                        title="Total Value"
-                        value={formatCurrency('GHS', stats.totalValue)}
-                        icon="cash"
-                        color="bg-green-500"
-                    />
-                    <StatCard
-                        title="Open Invoices"
-                        value={stats.approvedCount}
-                        subtext="Awaiting payment/action"
-                        icon="check-circle"
-                        color="bg-indigo-500"
-                    />
-                    <StatCard
-                        title="Pending"
-                        value={stats.pendingCount}
-                        subtext="Awaiting approval"
-                        icon="clock"
-                        color="bg-yellow-500"
-                    />
-                </div>
-
-                {/* Main Content Area */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-
-                    {/* Toolbar */}
-                    <div className="p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-
-                        {/* Tabs */}
-                        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
-                            {['All', 'Approved', 'Pending', 'Rejected'].map((tab) => (
-                                <button
-                                    key={tab}
-                                    onClick={() => setActiveTab(tab)}
-                                    className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === tab
-                                        ? 'bg-white text-gray-900 shadow-sm'
-                                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
-                                        }`}
-                                >
-                                    {tab}
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Search */}
-                        <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <Icon id="search" className="h-4 w-4 text-gray-400" />
-                            </div>
-                            <input
-                                type="text"
-                                placeholder="Search invoices..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full sm:w-64"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Table */}
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice ID</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {filteredInvoices.length > 0 ? (
-                                    filteredInvoices.map((inv) => (
-                                        <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                {inv.id}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {inv.date}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                {formatCurrency(inv.currency || 'GHS', inv.total)}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <StatusBadge status={inv.status} />
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                <button
-                                                    onClick={() => handleViewInvoice(inv)}
-                                                    className="text-blue-600 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-md transition-colors inline-flex items-center"
-                                                >
-                                                    <Icon id="eye" className="w-4 h-4 mr-1.5" />
-                                                    View
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
-                                            <div className="flex flex-col items-center justify-center">
-                                                <Icon id="document-search" className="w-12 h-12 text-gray-300 mb-3" />
-                                                <p className="text-lg font-medium text-gray-900">No invoices found</p>
-                                                <p className="text-sm text-gray-500">Try adjusting your search or filter.</p>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+        {/* CUSTOMER HEADER CARD */}
+        <Card className="mb-5">
+          <div className="px-5 py-4 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl font-semibold text-n-800 leading-tight tracking-tight">
+                {customer.name}
+              </h1>
+              <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 text-[13px] text-n-500">
+                <ContactChip icon={<User />}    text={customer.contactPerson || 'No contact person'} />
+                <ContactChip icon={<Mail />}    text={customer.contactEmail   || customer.email || 'No email'} />
+                <ContactChip icon={<Phone />}   text={customer.phone || customer.contactPhone || 'No phone'} />
+                <ContactChip icon={<MapPin />}  text={customer.location || customer.address || 'No location'} />
+              </div>
             </div>
+            <div className="flex-shrink-0">
+              <Button variant="primary" iconLeft={<Pencil />} onClick={() => setIsEditingCustomer(true)}>
+                Edit customer
+              </Button>
+            </div>
+          </div>
+        </Card>
 
-            {/* Invoice Preview Modal (Shared) */}
-            {previewPayload && (
-                <PreviewModal
-                    open={!!previewPayload}
-                    onClose={() => setPreviewPayload(null)}
-                    payload={previewPayload}
-                    mode="invoice"
-                    isDistribution={true} // Shows "Download" and "Close" buttons
-                />
-            )}
+        {/* METRIC ROW */}
+        <motion.div
+          variants={staggerContainer}
+          initial="initial"
+          animate="enter"
+          className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5"
+        >
+          <MetricTile label="Total invoices"  value={stats.total}        format="number" />
+          <MetricTile label="Total value"     value={stats.totalValue}   prefix="GHS " format="compact" trend="up" delta={null} />
+          <MetricTile label="Open invoices"   value={stats.approvedCount} format="number" trend="flat" />
+          <MetricTile label="Pending approval"value={stats.pendingCount} format="number" trend={stats.pendingCount > 0 ? 'up' : 'flat'} />
+        </motion.div>
 
-            {/* Customer Edit Modal */}
-            {isEditingCustomer && (
-                <CustomerModal
-                    customer={customer}
-                    onSave={handleSaveCustomer}
-                    onClose={() => setIsEditingCustomer(false)}
-                />
-            )}
+        {/* INVOICES SECTION */}
+        <Card className="mb-5 overflow-hidden">
+          <div className="px-5 py-3 border-b border-n-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <Tabs tabs={tabs} value={activeTab} onChange={setActiveTab} className="-mx-5 px-5" />
+            <div className="relative w-full md:w-72">
+              <Search className="w-3.5 h-3.5 text-n-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search invoice id or date…"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full h-8 pl-8 pr-3 text-[13px] bg-n-50 border border-n-200 rounded-md text-n-700 placeholder:text-n-400 focus:outline-none focus:bg-white focus:border-accent focus:shadow-focus transition-colors"
+              />
+            </div>
+          </div>
+
+          {searchTerm && (
+            <div className="px-5 pt-3">
+              <FilterChips
+                chips={[{ id: 'search', label: `Search: "${searchTerm}"`, onRemove: () => setSearchTerm('') }]}
+              />
+            </div>
+          )}
+
+          {invoicesLoading ? (
+            <div className="p-12 text-center">
+              <div className="inline-block w-8 h-8 rounded-full border-2 border-n-100 border-t-accent animate-spin" />
+              <div className="text-[13px] text-n-500 mt-2">Loading invoices…</div>
+            </div>
+          ) : sortedRows.length === 0 ? (
+            <EmptyState
+              icon={<FileQuestion className="w-6 h-6" />}
+              title="No invoices match these filters"
+              body={searchTerm ? 'Try clearing the search or switching tabs.' : 'No invoices for this customer yet.'}
+            />
+          ) : (
+            <motion.div variants={listContainer} initial="initial" animate="enter">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="bg-n-50 border-b border-n-200">
+                    <th className="px-4 py-2 text-left  w-[200px]"><SortableHeader label="Invoice"  sortKey="id"           current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                    <th className="px-4 py-2 text-left  w-[140px]"><SortableHeader label="Date"     sortKey="_date"        current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                    <th className="px-4 py-2 text-right w-[160px]"><SortableHeader label="Amount"   sortKey="_amount"      current={sortKey} dir={sortDir} onToggle={toggleSort} align="right" /></th>
+                    <th className="px-4 py-2 text-left  w-[180px]"><SortableHeader label="Status"   sortKey="status"       current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                    <th className="px-4 py-2 text-right w-[110px]"><span className="text-[11px] font-semibold uppercase tracking-wider text-n-600">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRows.map(inv => (
+                    <motion.tr
+                      key={inv.id}
+                      variants={listRow}
+                      onClick={() => handleViewInvoice(inv)}
+                      className="border-b border-n-100 hover:bg-n-50 cursor-pointer transition-colors"
+                    >
+                      <td className="px-4 py-2 font-mono-num text-[12.5px] text-n-800">{inv.approvedInvoiceId || inv.id}</td>
+                      <td className="px-4 py-2 text-n-600">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Calendar className="w-3 h-3 text-n-400" />
+                          {inv.date}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-right font-mono-num text-[12.5px] font-semibold text-n-800">{formatCurrency(inv.currency || 'GHS', inv.total)}</td>
+                      <td className="px-4 py-2"><StatusBadge value={inv.status} /></td>
+                      <td className="px-4 py-2 text-right">
+                        <Button size="sm" variant="subtle" iconLeft={<Eye />} onClick={(e) => { e.stopPropagation(); handleViewInvoice(inv); }}>
+                          View
+                        </Button>
+                      </td>
+                    </motion.tr>
+                  ))}
+                </tbody>
+              </table>
+            </motion.div>
+          )}
+        </Card>
+
+        {/* Footer hint */}
+        <div className="text-[12px] text-n-500 text-center pb-2">
+          Showing {sortedRows.length} of {invoices.length} invoices for {customer.name}
         </div>
-    );
+      </div>
+
+      {/* MODALS */}
+      {previewPayload && (
+        <PreviewModal
+          open={!!previewPayload}
+          onClose={() => setPreviewPayload(null)}
+          payload={previewPayload}
+          mode="invoice"
+          isDistribution={true}
+        />
+      )}
+
+      {isEditingCustomer && (
+        <CustomerModal
+          customer={customer}
+          onSave={handleSaveCustomer}
+          onClose={() => setIsEditingCustomer(false)}
+        />
+      )}
+    </div>
+  );
 };
+
+function ContactChip({ icon, text }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-n-500">
+      {React.cloneElement(icon, { className: 'w-3.5 h-3.5 text-n-400' })}
+      <span className="text-n-700">{text}</span>
+    </span>
+  );
+}
 
 export default CustomerPortal;

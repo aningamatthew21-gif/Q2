@@ -1,132 +1,281 @@
 @import "tailwindcss";
 
 /*
- * MIDSA design tokens
- * ──────────────────────────────────────────────────────────────
- * Tailwind v4 consumes `@theme` custom properties and exposes them
- * as utility classes automatically. For example:
- *   --color-primary        -> `bg-primary`, `text-primary`, `ring-primary`
- *   --color-primary-hover  -> `bg-primary-hover`
- *   --shadow-card          -> `shadow-card`
- *   --radius-card          -> `rounded-card`
- *   --blur-glass           -> `backdrop-blur-glass`
- *   --font-sans            -> `font-sans`  (the default sans stack)
+ * MIDSA design tokens — Fluent 2 Enterprise (locked direction, 2026-04)
+ * ──────────────────────────────────────────────────────────────────────
+ * Tailwind v4 consumes `@theme` custom properties and exposes them as
+ * utility classes automatically. Examples:
+ *   --color-accent            -> `bg-accent`, `text-accent`, `ring-accent`
+ *   --color-accent-hover      -> `bg-accent-hover`
+ *   --color-n-50, …, --color-n-900 -> `bg-n-50`, `text-n-700`, `border-n-200`
+ *   --shadow-card             -> `shadow-card`
+ *   --radius-card             -> `rounded-card`
  *
- * Palette: Enterprise Neutral. One accent (navy `primary`), muted
- * status colors, slate surfaces. "Glass" tokens drive the Apple-style
- * sidebar and modal translucency.
+ * Direction:
+ *   - Single accent (cobalt `#0F6CBD`) on a 10-step neutral ramp.
+ *   - Status colors (`ok` / `warn` / `err` / `info`) are reserved for
+ *     pills, badges, and chart series only — never for chrome.
+ *   - "Glass" tokens are kept (login splash + the user-settings sound
+ *     preview) but not used anywhere else.
+ *   - Legacy "primary"/"surface"/"ink" aliases are kept so v1 components
+ *     continue to render unchanged during the v1 → v2 migration.
  */
 @theme {
-  /* Surfaces */
-  --color-surface: #ffffff;
-  --color-surface-muted: #f8fafc;
-  --color-surface-sunken: #f1f5f9;
+  /* ── Fluent 2 neutrals ─────────────────────────────────────── */
+  --color-n-0:   #FAFAFA;
+  --color-n-50:  #F3F2F1;
+  --color-n-100: #EDEBE9;
+  --color-n-200: #E1DFDD;
+  --color-n-300: #C8C6C4;
+  --color-n-400: #A19F9D;
+  --color-n-500: #605E5C;
+  --color-n-600: #3B3A39;
+  --color-n-700: #323130;
+  --color-n-800: #201F1E;
+  --color-n-900: #11100F;
 
-  /* Text / ink */
-  --color-ink: #0f172a;
-  --color-ink-muted: #64748b;
-  --color-ink-subtle: #94a3b8;
+  /* ── Fluent 2 accent (cobalt) ──────────────────────────────── */
+  --color-accent:         #0F6CBD;
+  --color-accent-hover:   #115EA3;
+  --color-accent-pressed: #0F548C;
+  --color-accent-soft:    #EBF3FA;
+  --color-accent-text:    #0F548C;
 
-  /* Borders / hairlines */
-  --color-line: #e2e8f0;
-  --color-line-strong: #cbd5e1;
+  /* ── Status (badges + charts only) ─────────────────────────── */
+  --color-ok:        #107C10;
+  --color-ok-soft:   #DFF6DD;
+  --color-warn:      #B7710E;
+  --color-warn-soft: #FFF4CE;
+  --color-err:       #C4314B;
+  --color-err-soft:  #FDE7E9;
+  --color-info:      #005FB8;
+  --color-info-soft: #E0EFFF;
 
-  /* Primary accent (navy) */
-  --color-primary: #1e3a5f;
-  --color-primary-hover: #15304d;
-  --color-primary-soft: #eef2f7;
+  /* ── Legacy aliases (v1 components keep rendering during migration) */
+  --color-surface:        #ffffff;
+  --color-surface-muted:  #F3F2F1;
+  --color-surface-sunken: #EDEBE9;
+  --color-ink:            #201F1E;
+  --color-ink-muted:      #605E5C;
+  --color-ink-subtle:     #A19F9D;
+  --color-line:           #E1DFDD;
+  --color-line-strong:    #C8C6C4;
+  --color-primary:        #0F6CBD;
+  --color-primary-hover:  #115EA3;
+  --color-primary-soft:   #EBF3FA;
 
-  /* Status */
-  --color-success: #047857;
-  --color-success-soft: #ecfdf5;
-  --color-warning: #b45309;
-  --color-warning-soft: #fffbeb;
-  --color-danger: #b91c1c;
-  --color-danger-soft: #fef2f2;
-  --color-info: #0369a1;
-  --color-info-soft: #f0f9ff;
+  /* Status soft aliases (legacy) */
+  --color-success:      #107C10;
+  --color-success-soft: #DFF6DD;
+  --color-warning:      #B7710E;
+  --color-warning-soft: #FFF4CE;
+  --color-danger:       #C4314B;
+  --color-danger-soft:  #FDE7E9;
 
-  /* Glass (translucent) — sidebar + modals */
-  --color-glass: rgba(255, 255, 255, 0.65);
-  --color-glass-strong: rgba(255, 255, 255, 0.78);
-  --color-glass-tint: rgba(248, 250, 252, 0.55);
+  /* ── Glass (kept for login splash + sound preview only) ───── */
+  --color-glass:        rgba(255, 255, 255, 0.78);
+  --color-glass-strong: rgba(255, 255, 255, 0.88);
+  --color-glass-tint:   rgba(248, 250, 252, 0.55);
 
-  /* Radii */
-  --radius-card: 0.75rem;
-  --radius-panel: 1rem;
-  --radius-pill: 9999px;
-  --radius-glass: 1.25rem;
+  /* ── Radii (Fluent: small, restrained) ────────────────────── */
+  --radius-card:  6px;
+  --radius-panel: 8px;
+  --radius-pill:  9999px;
+  --radius-glass: 12px;
 
-  /* Shadows — depth via blur + inset highlight (macOS-popover feel) */
-  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-glass: 0 8px 32px rgba(15, 23, 42, 0.08),
-                  inset 0 0 0 1px rgba(255, 255, 255, 0.5);
-  --shadow-rail: 1px 0 0 rgba(15, 23, 42, 0.06);
+  /* ── Shadows (one elevation step, very subtle) ────────────── */
+  --shadow-card:     0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-card-hi:  0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-popover:  0 8px 24px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-glass:    0 8px 32px rgba(15, 23, 42, 0.10),
+                     inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --shadow-rail:     1px 0 0 rgba(15, 23, 42, 0.06);
+  --shadow-focus:    0 0 0 2px rgba(15, 108, 189, 0.25);
 
-  /* Backdrop blur (Apple-style) */
   --blur-glass: 20px;
 
-  /* Typography: Inter on Windows, SF Pro on Apple — identical feel. */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display",
-               "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* ── Typography ──────────────────────────────────────────── */
+  --font-sans: "Segoe UI Variable", "Segoe UI", Inter, -apple-system,
+               BlinkMacSystemFont, "SF Pro Display", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Cascadia Code", ui-monospace, "SF Mono", Consolas,
+               "Liberation Mono", monospace;
 }
 
 /* ──────────────────────────────────────────────────────────────
- * Dark mode — activated by toggling a `dark` class on <html>
- * (wired through UIPreferencesContext). We override the @theme
- * custom properties so every token-based utility (`bg-surface`,
- * `text-ink`, `border-line`, etc.) automatically flips. No per-
- * component class changes required.
+ * Dark mode — toggling `dark` class on <html> flips every token.
  * ────────────────────────────────────────────────────────────── */
 html.dark {
-  /* Surfaces — deep slate, not pure black, to keep the glass
-     highlights readable. */
-  --color-surface: #1e293b;
-  --color-surface-muted: #0f172a;
-  --color-surface-sunken: #111a2e;
+  /* Neutrals invert (light text on dark surfaces). */
+  --color-n-0:   #11100F;
+  --color-n-50:  #1B1A19;
+  --color-n-100: #201F1E;
+  --color-n-200: #292827;
+  --color-n-300: #3B3A39;
+  --color-n-400: #605E5C;
+  --color-n-500: #8A8886;
+  --color-n-600: #A19F9D;
+  --color-n-700: #C8C6C4;
+  --color-n-800: #E1DFDD;
+  --color-n-900: #F3F2F1;
 
-  /* Text — near-white, softened. */
-  --color-ink: #f1f5f9;
-  --color-ink-muted: #94a3b8;
-  --color-ink-subtle: #64748b;
+  /* Accent shifts brighter so it stays legible on dark surface. */
+  --color-accent:         #62ABEB;
+  --color-accent-hover:   #8BC0F0;
+  --color-accent-pressed: #4895DC;
+  --color-accent-soft:    rgba(98, 171, 235, 0.16);
+  --color-accent-text:    #8BC0F0;
 
-  /* Borders darken but stay visible. */
-  --color-line: #334155;
-  --color-line-strong: #475569;
+  /* Legacy aliases follow. */
+  --color-surface:        #1B1A19;
+  --color-surface-muted:  #11100F;
+  --color-surface-sunken: #201F1E;
+  --color-ink:            #F3F2F1;
+  --color-ink-muted:      #A19F9D;
+  --color-ink-subtle:     #605E5C;
+  --color-line:           #292827;
+  --color-line-strong:    #3B3A39;
+  --color-primary:        #62ABEB;
+  --color-primary-hover:  #8BC0F0;
+  --color-primary-soft:   rgba(98, 171, 235, 0.16);
 
-  /* Primary shifts slightly brighter so the navy stays visible
-     against the dark canvas. */
-  --color-primary: #60a5fa;
-  --color-primary-hover: #3b82f6;
-  --color-primary-soft: rgba(96, 165, 250, 0.15);
+  --color-ok-soft:   rgba(16, 124, 16, 0.18);
+  --color-warn-soft: rgba(183, 113, 14, 0.18);
+  --color-err-soft:  rgba(196, 49, 75, 0.18);
+  --color-info-soft: rgba(0, 95, 184, 0.20);
 
-  /* Status — soft variants become translucent tints so badges
-     still read at a glance. */
-  --color-success-soft: rgba(16, 185, 129, 0.15);
-  --color-warning-soft: rgba(245, 158, 11, 0.15);
-  --color-danger-soft:  rgba(239, 68, 68, 0.15);
-  --color-info-soft:    rgba(56, 189, 248, 0.15);
-
-  /* Glass — darker translucent tint. */
-  --color-glass:        rgba(30, 41, 59, 0.65);
-  --color-glass-strong: rgba(30, 41, 59, 0.85);
+  --color-glass:        rgba(30, 41, 59, 0.78);
+  --color-glass-strong: rgba(30, 41, 59, 0.90);
   --color-glass-tint:   rgba(15, 23, 42, 0.55);
 
-  /* Shadows — stronger, since drop shadow over dark is almost
-     invisible otherwise. */
-  --shadow-card:  0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.5),
-                  inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --shadow-card:     0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card-hi:  0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-popover:  0 8px 24px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-glass:    0 8px 32px rgba(0, 0, 0, 0.5),
+                     inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 html.dark body {
-  background-color: var(--color-surface-muted);
-  color: var(--color-ink);
+  background-color: var(--color-n-0);
+  color: var(--color-n-700);
 }
 
 /* ──────────────────────────────────────────────────────────────
- * Legacy button-pop interaction (opt-in via `data-pop`). Kept for
- * backward-compat until the shared <Button> primitive replaces all
- * ad-hoc buttons. At that point this rule will be removed.
+ * Dark-mode legacy-class override
+ * ────────────────────────────────────────────────────────────────
+ * v2 components use Fluent neutral tokens (bg-n-100, text-n-700) which
+ * flip automatically in dark mode. But MANY of the v1 pages and the
+ * default Tailwind palette (bg-white, bg-gray-50, text-gray-700, etc.)
+ * are HARDCODED — they show pure white surfaces and dark text even when
+ * the user has switched to dark mode, producing the "only the background
+ * goes dark" bug visible in the user's screenshots.
+ *
+ * Rather than touch every page, we override the most common stuck
+ * classes here under `html.dark`. The remaps push them onto the same
+ * neutral ramp the v2 system already uses, so light and dark modes
+ * stay visually consistent across the whole app.
+ *
+ * Scoped to `html.dark` so this rule has zero effect in light mode.
+ * Important !important: Tailwind utilities are written by the engine
+ * AFTER this stylesheet, so we have to win the cascade.
+ * ────────────────────────────────────────────────────────────── */
+html.dark .bg-white                   { background-color: var(--color-n-50)  !important; }
+html.dark .bg-gray-50                 { background-color: var(--color-n-0)   !important; }
+html.dark .bg-gray-100                { background-color: var(--color-n-50)  !important; }
+html.dark .bg-gray-200                { background-color: var(--color-n-100) !important; }
+html.dark .bg-slate-50                { background-color: var(--color-n-0)   !important; }
+html.dark .bg-slate-100               { background-color: var(--color-n-50)  !important; }
+
+html.dark .text-gray-400              { color: var(--color-n-500) !important; }
+html.dark .text-gray-500              { color: var(--color-n-500) !important; }
+html.dark .text-gray-600              { color: var(--color-n-600) !important; }
+html.dark .text-gray-700              { color: var(--color-n-700) !important; }
+html.dark .text-gray-800              { color: var(--color-n-800) !important; }
+html.dark .text-gray-900              { color: var(--color-n-800) !important; }
+
+html.dark .border-gray-100            { border-color: var(--color-n-100) !important; }
+html.dark .border-gray-200            { border-color: var(--color-n-200) !important; }
+html.dark .border-gray-300            { border-color: var(--color-n-300) !important; }
+
+html.dark .divide-gray-100 > * + *    { border-color: var(--color-n-100) !important; }
+
+/* Soft brand-tints used as "info card" backgrounds across procurement —
+   keep their hue in dark mode but reduce intensity so they don't burn. */
+html.dark .bg-blue-50,
+html.dark .bg-amber-50,
+html.dark .bg-yellow-50,
+html.dark .bg-green-50,
+html.dark .bg-red-50,
+html.dark .bg-purple-50 {
+  background-color: var(--color-n-50) !important;
+}
+html.dark .bg-blue-100   { background-color: var(--color-info-soft) !important; }
+html.dark .bg-amber-100,
+html.dark .bg-yellow-100 { background-color: var(--color-warn-soft) !important; }
+html.dark .bg-green-100  { background-color: var(--color-ok-soft)   !important; }
+html.dark .bg-red-100    { background-color: var(--color-err-soft)  !important; }
+
+html.dark .text-blue-600,  html.dark .text-blue-700  { color: var(--color-info)  !important; }
+html.dark .text-green-600, html.dark .text-green-700,
+html.dark .text-emerald-600, html.dark .text-emerald-700 { color: var(--color-ok)   !important; }
+html.dark .text-amber-600, html.dark .text-amber-700,
+html.dark .text-yellow-600, html.dark .text-yellow-700,
+html.dark .text-orange-600, html.dark .text-orange-700  { color: var(--color-warn) !important; }
+html.dark .text-red-600,   html.dark .text-red-700   { color: var(--color-err)  !important; }
+html.dark .text-purple-600,html.dark .text-purple-700{ color: var(--color-info) !important; }
+
+/* Form-field defaults that don't pick up tokens. */
+html.dark input[type="text"],
+html.dark input[type="email"],
+html.dark input[type="number"],
+html.dark input[type="search"],
+html.dark input[type="tel"],
+html.dark input[type="url"],
+html.dark input[type="date"],
+html.dark input[type="datetime-local"],
+html.dark textarea,
+html.dark select {
+  background-color: var(--color-n-50);
+  color: var(--color-n-800);
+  border-color: var(--color-n-200);
+}
+html.dark input[type="text"]:focus,
+html.dark input[type="email"]:focus,
+html.dark input[type="number"]:focus,
+html.dark input[type="search"]:focus,
+html.dark textarea:focus,
+html.dark select:focus {
+  background-color: var(--color-n-0);
+  border-color: var(--color-accent);
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Body base (Fluent 2 — Segoe UI Variable, 14px, neutral surface).
+ * ────────────────────────────────────────────────────────────── */
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--color-n-700);
+  background-color: var(--color-n-50);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "cv11";  /* tabular numerals + alt 1 */
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Focus ring — single global treatment.
+ * ────────────────────────────────────────────────────────────── */
+:where(button, a, input, select, textarea, [tabindex]):focus {
+  outline: none;
+}
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Legacy button-pop (kept while v1 buttons exist).
  * ────────────────────────────────────────────────────────────── */
 button[data-pop] {
   transition: transform 120ms ease, box-shadow 120ms ease;
@@ -137,8 +286,7 @@ button[data-pop]:active {
 }
 
 /* ──────────────────────────────────────────────────────────────
- * Respect user motion preferences. GlassSurface's breathing and
- * sheen animations opt out when this is set.
+ * Reduced motion — collapse all transitions to instant.
  * ────────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -149,3 +297,114 @@ button[data-pop]:active {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────
+ * v2 utility helpers used by Fluent shell components.
+ * ────────────────────────────────────────────────────────────── */
+.font-mono-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.brand-mark-gradient {
+  background: linear-gradient(135deg, #1483D6 0%, #0F548C 100%);
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Subtle, polished scrollbars (Office / Outlook feel).
+ * Webkit + Firefox treatments — dark-mode adjusted via `html.dark`.
+ * ────────────────────────────────────────────────────────────── */
+* { scrollbar-width: thin; scrollbar-color: var(--color-n-300) transparent; }
+*::-webkit-scrollbar         { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track   { background: transparent; }
+*::-webkit-scrollbar-thumb   {
+  background: var(--color-n-200);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--color-n-300); background-clip: padding-box; border: 2px solid transparent; }
+
+/* ──────────────────────────────────────────────────────────────
+ * Smooth-scroll for in-page anchors (helps dashboard "see all"
+ * links and detail-page tab switches feel cohesive).
+ * ────────────────────────────────────────────────────────────── */
+html { scroll-behavior: smooth; }
+
+/* ──────────────────────────────────────────────────────────────
+ * Sticky table-header fix
+ * ──────────────────────────────────────────────────────────────
+ * Browsers don't reliably paint backgrounds set on the <thead>
+ * element when it's `position: sticky` — rows scrolling beneath
+ * "ghost through" the header (visible in the user's screenshot
+ * where INV-2026-… appeared behind the sticky INVOICE / CUSTOMER /
+ * DATE labels). We push the background down to each <th> and add a
+ * solid bottom rule, so every sticky header in the app — v2 list
+ * pages, the legacy InvoiceEditor, RFQBuilder, QuotingModule —
+ * renders opaque without per-page edits.
+ *
+ * Scoped to `<thead class="sticky"> th` so non-sticky headers are
+ * untouched. The `inherit` falls back on whatever bg utility class
+ * the page already specified on the <thead> (bg-n-50, bg-gray-50,
+ * etc.) so the look stays consistent.
+ * ────────────────────────────────────────────────────────────── */
+thead.sticky {
+  /* Lift above row content + page-transition motion layer. */
+  z-index: 20 !important;
+}
+thead.sticky th {
+  background: inherit;
+  /* If the <thead> didn't set a bg, fall back to a neutral surface
+     so the header still paints solid. */
+  background-color: var(--color-n-50);
+  box-shadow: 0 1px 0 var(--color-n-200);   /* solid divider line */
+}
+html.dark thead.sticky th {
+  background-color: var(--color-n-50);       /* dark-mode neutral */
+  box-shadow: 0 1px 0 var(--color-n-200);
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Reusable v2 keyframes.
+ * ────────────────────────────────────────────────────────────── */
+@keyframes v2-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.v2-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-n-100) 0%,
+    var(--color-n-200) 50%,
+    var(--color-n-100) 100%
+  );
+  background-size: 200% 100%;
+  animation: v2-shimmer 1.6s linear infinite;
+}
+
+@keyframes v2-pulse-ring {
+  0%   { box-shadow: 0 0 0 0   rgba(15, 108, 189, 0.4); }
+  70%  { box-shadow: 0 0 0 12px rgba(15, 108, 189, 0);   }
+  100% { box-shadow: 0 0 0 0   rgba(15, 108, 189, 0);    }
+}
+.v2-pulse-ring { animation: v2-pulse-ring 1.6s ease-out 1; border-radius: 9999px; }
+
+@keyframes v2-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.v2-fade-up { animation: v2-fade-up 0.24s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Soft accent gradient sweep — used on KPI tile hover for a Fluent-y feel. */
+@keyframes v2-sweep {
+  0%   { background-position: -120% 0; }
+  100% { background-position: 220% 0;  }
+}
+.v2-sweep::after {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none; opacity: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(15,108,189,0.10) 50%, transparent 70%);
+  background-size: 220% 100%;
+  transition: opacity 0.2s ease;
+}
+.v2-sweep:hover::after { opacity: 1; animation: v2-sweep 1.2s ease-out 1; }

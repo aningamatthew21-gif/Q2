@@ -1,54 +1,36 @@
 import React from 'react';
+import V2StatusBadge from '../v2/StatusBadge';
 
 /**
- * StatusPill — single source of truth for every colored status badge.
+ * StatusPill — v1 API, v2 StatusBadge under the hood.
  *
- * Replaces the 5+ scattered `getStatusColor()` helpers and inline
- * ternary chains across AllInvoices, MyInvoices, ProcurementDashboard,
- * PurchaseRequisitionList, VendorManagement, SalesInvoiceApproval,
- * SalesInvoiceReview.
+ * The v1 API is preserved (status / domain / tone / size / className /
+ * children) so all existing call sites — AllInvoices, MyInvoices, the
+ * dashboards, RFQ list, vendor list — keep working with no edits.
  *
- * Design philosophy — Enterprise Neutral:
- *   - Muted "soft" background + dark semantic text (e.g. bg-success-soft
- *     + text-success). Not the old "bg-green-100 / text-green-800"
- *     rainbow — one accent family per semantic.
- *   - Every status across the app (invoice, PR, RFQ, vendor, payment)
- *     collapses into four semantic bands: neutral, info, success,
- *     warn, danger. No per-status hue soup.
- *
- * Usage:
- *   <StatusPill status={inv.status} />                    // invoice
- *   <StatusPill status={pr.status}  domain="pr" />        // procurement
- *   <StatusPill tone="success">Custom</StatusPill>        // manual tone
- *
- * Props:
- *   - status: string from the backend (mapped via STATUS_MAP)
- *   - domain: 'invoice' | 'pr' | 'rfq' | 'vendor' | 'generic'
- *   - tone:   when set, bypasses mapping and uses tone directly
- *             one of 'neutral' | 'info' | 'success' | 'warn' | 'danger'
- *   - children: custom label (falls back to `status`)
- *   - size: 'sm' | 'md' (default 'sm')
- *   - className: pass-through
+ * Tone resolution moves to v2 StatusBadge's auto-detector for free-form
+ * strings, but explicit `tone="success"` / `tone="danger"` etc still
+ * works via the v1→v2 tone map below. Domain-specific status maps that
+ * v1 used (`pr`, `rfq`, `vendor`) are kept here so backend strings like
+ * 'IN_RFQ' or 'AWAITING_RESPONSES' resolve to the right colour.
  */
 
-const TONE = {
-  neutral: 'bg-surface-sunken text-ink-muted',
-  info:    'bg-info-soft    text-info',
-  success: 'bg-success-soft text-success',
-  warn:    'bg-warning-soft text-warning',
-  danger:  'bg-danger-soft  text-danger'
+const TONE_V1_TO_V2 = {
+  neutral: 'muted',
+  info:    'info',
+  success: 'ok',
+  warn:    'warn',
+  danger:  'err'
 };
 
-// Canonical status → tone mapping. All historical backend status
-// strings are covered. Unknown values fall back to 'neutral'.
 const STATUS_MAP = {
   invoice: {
     'Paid':                 'success',
     'Customer Accepted':    'success',
-    'Approved':             'info',       // "Ready to Send"
+    'Approved':             'info',
     'Awaiting Acceptance':  'warn',
     'Pending Approval':     'warn',
-    'Pending Pricing':      'warn',       // procurement sourcing
+    'Pending Pricing':      'warn',
     'Rejected':             'danger',
     'Customer Rejected':    'danger'
   },
@@ -65,7 +47,9 @@ const STATUS_MAP = {
     'AWAITING_RESPONSES':   'info',
     'RESPONSES_LOGGED':     'warn',
     'RECOMMENDED':          'warn',
+    'PENDING_APPROVAL':     'warn',
     'APPROVED':             'success',
+    'AWARDED':              'success',
     'REJECTED':             'danger',
     'CANCELLED':            'neutral',
     'ESCALATED':            'danger'
@@ -76,30 +60,16 @@ const STATUS_MAP = {
     'inactive':  'neutral'
   },
   generic: {
-    // Ad-hoc status keywords; covers yes/no/fail/ok style outputs from
-    // DatabaseDiagnostic and similar components.
-    'ok':      'success',
-    'OK':      'success',
-    'PASS':    'success',
-    'pass':    'success',
-    'FAIL':    'danger',
-    'fail':    'danger',
-    'ERROR':   'danger',
-    'error':   'danger',
-    'WARNING': 'warn',
-    'warning': 'warn'
+    'ok':'success','OK':'success','PASS':'success','pass':'success',
+    'FAIL':'danger','fail':'danger','ERROR':'danger','error':'danger',
+    'WARNING':'warn','warning':'warn'
   }
 };
 
-const SIZE = {
-  sm: 'text-xs px-2 py-0.5',
-  md: 'text-sm px-3 py-1'
-};
-
-function resolveTone({ status, domain, tone }) {
-  if (tone && TONE[tone]) return tone;
+function resolveV1Tone({ status, domain, tone }) {
+  if (tone) return tone;
   const map = STATUS_MAP[domain] ?? STATUS_MAP.invoice;
-  return map[status] ?? 'neutral';
+  return map[status] ?? null;       // null => let v2 auto-detect
 }
 
 export default function StatusPill({
@@ -110,21 +80,19 @@ export default function StatusPill({
   className = '',
   children
 }) {
-  const resolvedTone = resolveTone({ status, domain, tone });
+  const v1Tone = resolveV1Tone({ status, domain, tone });
+  const v2Tone = v1Tone ? TONE_V1_TO_V2[v1Tone] : undefined;
+
   return (
-    <span
-      className={[
-        'inline-flex items-center gap-1 font-medium whitespace-nowrap',
-        'rounded-pill',
-        TONE[resolvedTone],
-        SIZE[size] ?? SIZE.sm,
-        className
-      ].join(' ')}
+    <V2StatusBadge
+      value={status}
+      tone={v2Tone}
+      size={size === 'md' ? 'md' : 'sm'}
+      className={className}
     >
       {children ?? status ?? '—'}
-    </span>
+    </V2StatusBadge>
   );
 }
 
-// Export the mapping for tests/storybook if ever needed.
-export { TONE, STATUS_MAP };
+export { STATUS_MAP };

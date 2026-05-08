@@ -9,8 +9,10 @@ import { useRealtimePRs } from '../hooks/useRealtimePRs';
 import { useRealtimeVendors } from '../hooks/useRealtimeVendors';
 import { logActivity } from '../utils/logger';
 import { useApp } from '../context/AppContext';
+import { usePrompt } from '../components/v2/PromptDialog';
 
 const RFQBuilder = ({ navigateTo, currentUser, pageContext }) => {
+    const { askConfirm } = usePrompt();
     const { userEmail } = useApp();
     const username = userEmail ? userEmail.split('@')[0] : 'System';
 
@@ -349,10 +351,16 @@ const RFQBuilder = ({ navigateTo, currentUser, pageContext }) => {
                             </button>
                             <button
                                 disabled={!canSubmit || submitting}
-                                onClick={() => {
+                                onClick={async () => {
                                     const prNames = openPRs.filter(p => selectedPRs.has(p.id)).map(p => p.itemName).join(', ');
                                     const vNames  = activeVendors.filter(v => selectedVendors.has(v.id)).map(v => v.name).join(', ');
-                                    if (!window.confirm(`Save as draft without preview?\n\nTitle: ${title}\nPRs: ${prNames}\nVendors: ${vNames}\n\nYou can send to vendors later from the RFQ detail page.`)) return;
+                                    const ok = await askConfirm({
+                                        title:        'Save as draft without preview?',
+                                        description:  `Title: ${title}\nPRs: ${prNames}\nVendors: ${vNames}\n\nYou can send to vendors later from the RFQ detail page.`,
+                                        confirmLabel: 'Save draft',
+                                        confirmTone:  'primary'
+                                    });
+                                    if (!ok) return;
                                     handleCreate(false);
                                 }}
                                 className={`w-full py-2 px-4 rounded-md text-sm border ${

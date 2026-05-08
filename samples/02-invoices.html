@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MIDSA — Invoices (sample)</title>
+<link rel="stylesheet" href="_shell.css" />
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  /* Page-specific: split workspace + slide-in panel */
+  .with-panel { display:grid; grid-template-columns: 1fr 380px; gap: 16px; align-items: start; }
+  @media (max-width: 1280px) { .with-panel { grid-template-columns: 1fr; } }
+  .panel-head { display:flex; align-items:flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .panel-head h3 { margin: 0; font-size: 16px; color: var(--n-800); }
+  .panel-head .id { font-family: var(--font-mono); color: var(--n-500); font-size: 12px; }
+  .pill-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 12px; }
+  .toolbar-right { margin-left:auto; display:flex; gap:2px; align-items:center; }
+  .density-toggle { display:flex; border:1px solid var(--n-200); border-radius:4px; overflow:hidden; }
+  .density-toggle button { padding:6px 8px; background:#fff; border:0; color: var(--n-600); font-size:12px; cursor:pointer; }
+  .density-toggle button.active { background: var(--accent-soft); color: var(--accent-text); }
+  .row-actions { color: var(--n-500); cursor:pointer; }
+  .row-actions:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">M</div>
+      <div class="brand-name">MIDSA</div>
+    </div>
+    <div class="search-wrap">
+      <i class="search-icon" data-lucide="search" style="width:14px;height:14px"></i>
+      <input class="search" placeholder="Search invoices, customers, RFQs &mdash; or press Ctrl+K" />
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-icons">
+      <button class="icon-btn"><i data-lucide="bell"></i></button>
+      <button class="icon-btn"><i data-lucide="help-circle"></i></button>
+      <button class="icon-btn"><i data-lucide="settings"></i></button>
+      <div class="user-pill">
+        <div class="avatar">MA</div>
+        <span style="font-size:13px">Mattew A.</span>
+        <i data-lucide="chevron-down" style="width:14px;height:14px;color:var(--n-500)"></i>
+      </div>
+    </div>
+  </header>
+
+  <!-- LEFT NAV -->
+  <nav class="sidenav">
+    <div class="nav-section-label">Workspace</div>
+    <div class="nav-item"><i data-lucide="layout-dashboard"></i> Dashboard</div>
+    <div class="nav-item"><i data-lucide="file-plus"></i> New Quote</div>
+    <div class="nav-section-label">Invoices</div>
+    <div class="nav-item active"><i data-lucide="files"></i> All invoices</div>
+    <div class="nav-item"><i data-lucide="user-check"></i> My invoices</div>
+    <div class="nav-item"><i data-lucide="check-check"></i> Approvals</div>
+    <div class="nav-section-label">Procurement</div>
+    <div class="nav-item"><i data-lucide="clipboard-list"></i> Requisitions</div>
+    <div class="nav-item"><i data-lucide="file-text"></i> RFQs</div>
+    <div class="nav-item"><i data-lucide="factory"></i> Vendors</div>
+    <div class="nav-section-label">Catalogue</div>
+    <div class="nav-item"><i data-lucide="boxes"></i> Inventory</div>
+    <div class="nav-item"><i data-lucide="users"></i> Customers</div>
+    <div class="nav-item"><i data-lucide="tags"></i> Pricing</div>
+    <div class="nav-section-label">System</div>
+    <div class="nav-item"><i data-lucide="history"></i> Audit</div>
+    <div class="nav-item"><i data-lucide="sliders"></i> Settings</div>
+  </nav>
+
+  <!-- WORKSPACE -->
+  <main class="workspace">
+    <div class="crumb">
+      <a href="#">Workspace</a><span class="sep">/</span>
+      <a href="#">Finance</a><span class="sep">/</span>
+      <span style="color:var(--n-700)">All invoices</span>
+    </div>
+
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Invoices</h1>
+        <div class="page-sub">427 records &middot; 18 pending approval &middot; 3 stale &gt;7 days</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn"><i data-lucide="download"></i> Export</button>
+        <button class="btn btn-primary"><i data-lucide="plus"></i> New invoice</button>
+      </div>
+    </div>
+
+    <!-- COMMAND BAR -->
+    <div class="cmdbar">
+      <button class="cmd-btn"><i data-lucide="plus"></i> New</button>
+      <span class="cmd-divider"></span>
+      <button class="cmd-btn" disabled><i data-lucide="edit-2"></i> Edit</button>
+      <button class="cmd-btn" disabled><i data-lucide="trash-2"></i> Delete</button>
+      <button class="cmd-btn"><i data-lucide="download"></i> Export</button>
+      <button class="cmd-btn"><i data-lucide="printer"></i> Print</button>
+      <span class="cmd-divider"></span>
+      <button class="cmd-btn"><i data-lucide="filter"></i> Filters</button>
+      <button class="cmd-btn"><i data-lucide="search"></i> Search</button>
+      <span class="cmd-divider"></span>
+      <button class="cmd-btn"><i data-lucide="refresh-cw"></i> Refresh</button>
+      <span class="cmd-spacer"></span>
+      <div class="density-toggle">
+        <button title="Compact" class="active"><i data-lucide="rows-3" style="width:14px;height:14px"></i></button>
+        <button title="Comfortable"><i data-lucide="rows-2" style="width:14px;height:14px"></i></button>
+      </div>
+      <button class="cmd-btn"><i data-lucide="columns"></i> Columns</button>
+    </div>
+
+    <!-- FILTER CHIPS -->
+    <div class="chips">
+      <span class="chip">Status: Pending Approval <span class="chip-x"><i data-lucide="x" style="width:12px;height:12px"></i></span></span>
+      <span class="chip">Customer: ACME <span class="chip-x"><i data-lucide="x" style="width:12px;height:12px"></i></span></span>
+      <span class="chip">Date &ge; 2026-04-01 <span class="chip-x"><i data-lucide="x" style="width:12px;height:12px"></i></span></span>
+      <button class="cmd-btn" style="padding:4px 10px;font-size:12px"><i data-lucide="plus"></i> Add filter</button>
+    </div>
+
+    <div class="with-panel">
+      <!-- TABLE -->
+      <div class="card" style="overflow:hidden">
+        <table class="dt">
+          <thead>
+            <tr>
+              <th style="width:36px"><input type="checkbox"></th>
+              <th style="width:140px">Invoice</th>
+              <th>Customer</th>
+              <th style="width:110px">Date</th>
+              <th class="num" style="width:140px">Total</th>
+              <th style="width:160px">Status</th>
+              <th style="width:120px">Sourcing</th>
+              <th style="width:120px">Salesperson</th>
+              <th style="width:36px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="selected"><td><input type="checkbox" checked></td><td class="mono">INV-2026-0118</td><td>ACME Industries</td><td>2026-04-25</td><td class="num">84,910.50</td><td><span class="badge warn">Pending Approval</span></td><td><span class="badge ok">Complete</span></td><td>aninga@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0117</td><td>Korle-Bu Hospital</td><td>2026-04-24</td><td class="num">42,180.00</td><td><span class="badge ok">Approved</span></td><td><span class="badge ok">Complete</span></td><td>aninga@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0116</td><td>Ghana Ports Authority</td><td>2026-04-24</td><td class="num">2,180.00</td><td><span class="badge err">Rejected</span></td><td><span class="badge muted">N/A</span></td><td>kwesi@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0115</td><td>Tema Oil Refinery</td><td>2026-04-23</td><td class="num">128,400.00</td><td><span class="badge info">Pending Pricing</span></td><td><span class="badge warn">Partial</span></td><td>aninga@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0114</td><td>VRA</td><td>2026-04-23</td><td class="num">96,510.00</td><td><span class="badge warn">Pending Approval</span></td><td><span class="badge ok">Complete</span></td><td>kojo@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0113</td><td>MTN Ghana</td><td>2026-04-22</td><td class="num">71,220.00</td><td><span class="badge ok">Approved</span></td><td><span class="badge ok">Complete</span></td><td>aninga@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0112</td><td>UG-Legon</td><td>2026-04-22</td><td class="num">64,800.00</td><td><span class="badge ok">Approved</span></td><td><span class="badge ok">Complete</span></td><td>kwesi@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0111</td><td>Cocobod</td><td>2026-04-21</td><td class="num">55,310.00</td><td><span class="badge muted">Draft</span></td><td><span class="badge muted">N/A</span></td><td>aninga@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0110</td><td>Newmont Ahafo</td><td>2026-04-21</td><td class="num">312,400.00</td><td><span class="badge warn">Pending Approval</span></td><td><span class="badge ok">Complete</span></td><td>kojo@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0109</td><td>Goldfields</td><td>2026-04-20</td><td class="num">188,940.00</td><td><span class="badge ok">Approved</span></td><td><span class="badge ok">Complete</span></td><td>aninga@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0108</td><td>Stanbic Bank</td><td>2026-04-19</td><td class="num">12,400.00</td><td><span class="badge ok">Approved</span></td><td><span class="badge ok">Complete</span></td><td>kwesi@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+            <tr><td><input type="checkbox"></td><td class="mono">INV-2026-0107</td><td>Ghana Water Co.</td><td>2026-04-19</td><td class="num">28,150.00</td><td><span class="badge info">Pending Pricing</span></td><td><span class="badge warn">Partial</span></td><td>aninga@…</td><td class="row-actions"><i data-lucide="more-vertical" style="width:14px;height:14px"></i></td></tr>
+          </tbody>
+        </table>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--n-200);background:var(--n-50);font-size:12px;color:var(--n-500)">
+          <div>Showing 1–12 of 427</div>
+          <div style="display:flex;gap:4px;align-items:center">
+            <button class="cmd-btn"><i data-lucide="chevrons-left"></i></button>
+            <button class="cmd-btn"><i data-lucide="chevron-left"></i></button>
+            <span class="tabular">1 / 36</span>
+            <button class="cmd-btn"><i data-lucide="chevron-right"></i></button>
+            <button class="cmd-btn"><i data-lucide="chevrons-right"></i></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SIDE PANEL (preview of selected row) -->
+      <aside class="card" style="position:sticky;top:64px">
+        <div class="card-pad">
+          <div class="panel-head">
+            <div>
+              <div class="id">INV-2026-0118</div>
+              <h3>ACME Industries</h3>
+            </div>
+            <button class="icon-btn"><i data-lucide="x"></i></button>
+          </div>
+          <div class="pill-row">
+            <span class="badge warn">Pending Approval</span>
+            <span class="badge ok">Sourcing complete</span>
+          </div>
+
+          <div class="tabs" style="margin: 0 -16px 16px">
+            <div class="tab active">Overview</div>
+            <div class="tab">Items (4)</div>
+            <div class="tab">Activity</div>
+          </div>
+
+          <div class="summary-row"><span class="lbl">Date</span><span class="val">2026-04-25</span></div>
+          <div class="summary-row"><span class="lbl">Currency</span><span class="val">GHS</span></div>
+          <div class="summary-row"><span class="lbl">Subtotal</span><span class="val tabular">82,265.05</span></div>
+          <div class="summary-row"><span class="lbl">Taxes</span><span class="val tabular">2,645.45</span></div>
+          <div class="summary-row"><span class="lbl">Total</span><span class="val tabular" style="font-weight:600">84,910.50</span></div>
+          <div class="summary-row"><span class="lbl">Salesperson</span><span class="val">aninga@…</span></div>
+          <div class="summary-row"><span class="lbl">PRs</span><span class="val">2 (both awarded)</span></div>
+
+          <div class="divider"></div>
+          <div class="section-title">Actions</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button class="btn"><i data-lucide="external-link"></i> Open invoice</button>
+            <button class="btn"><i data-lucide="file-text"></i> Preview / Download PDF</button>
+            <button class="btn btn-primary"><i data-lucide="check"></i> Approve</button>
+            <button class="btn btn-danger"><i data-lucide="rotate-ccw"></i> Send back</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="statusbar">
+    <span style="color:var(--ok)">&bull; Connected</span>
+    <span>Realtime: ON</span>
+    <span>1 selected of 12 visible</span>
+    <span style="margin-left:auto">427 records &middot; 36 pages</span>
+  </footer>
+</div>
+<script>lucide.createIcons();</script>
+</body>
+</html>

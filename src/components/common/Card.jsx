@@ -1,25 +1,17 @@
 import React from 'react';
+import { motion } from 'framer-motion';
+import { cardHover, TRANSITION_OUT } from '../v2/motion';
 
 /**
- * Card — the standard content container.
+ * Card — v1 API, Fluent 2 visuals.
  *
- * Replaces the inline `bg-white p-6 rounded-xl shadow-md` pattern
- * that every page currently duplicates. Uses design tokens:
- *   bg-surface border-line shadow-card rounded-card
- *
- * Opts for thin 1px `border-line` over drop shadows for a
- * flatter, more enterprise look (Xero/NetSuite style). A near-
- * invisible `shadow-card` adds just enough lift to separate the
- * card from the slate canvas without looking "webby."
- *
- * Props:
- *  - title:    optional string or node rendered as h3 at the top
- *  - subtitle: optional muted line under the title
- *  - actions:  optional node rendered right-aligned in the header
- *  - padding:  Tailwind padding class (default 'p-6')
- *  - dense:    when true, uses 'p-4' and smaller header spacing
- *  - as:       element tag (default 'section')
- *  - className, children, ...rest — pass-through
+ * Same prop contract as the original (title / subtitle / actions /
+ * padding / dense / as) so call sites keep working unchanged. The
+ * card is now a Fluent 2 surface: white background, 1px neutral
+ * border, very subtle shadow, soft -1px hover-lift driven by
+ * framer-motion. Header typography reduced from `text-base` to the
+ * Fluent `text-[13px]` and the divider rule moved to the bottom of
+ * the header for a clearer information hierarchy.
  */
 export default function Card({
   title,
@@ -30,19 +22,20 @@ export default function Card({
   as: Tag = 'section',
   className = '',
   children,
+  interactive = false,
   ...rest
 }) {
-  const effectivePadding = padding ?? (dense ? 'p-4' : 'p-6');
+  const effectivePadding = padding ?? (dense ? 'p-4' : 'p-5');
   const hasHeader = title || subtitle || actions;
 
-  return (
+  const Inner = (
     <Tag
       className={[
-        'bg-surface',
-        'border border-line',
+        'bg-white',
+        'border border-n-200',
         'rounded-card',
         'shadow-card',
-        effectivePadding,
+        'overflow-hidden',
         className
       ].join(' ')}
       {...rest}
@@ -51,17 +44,17 @@ export default function Card({
         <header
           className={[
             'flex items-start justify-between gap-4',
-            dense ? 'mb-3' : 'mb-5'
+            'px-5 py-3 border-b border-n-200'
           ].join(' ')}
         >
           <div className="min-w-0">
             {title && (
-              <h3 className="text-base font-semibold text-ink leading-tight truncate">
+              <h3 className="text-[13px] font-semibold text-n-800 leading-tight truncate">
                 {title}
               </h3>
             )}
             {subtitle && (
-              <p className="mt-1 text-sm text-ink-muted leading-snug">
+              <p className="mt-0.5 text-xs text-n-500 leading-snug">
                 {subtitle}
               </p>
             )}
@@ -73,7 +66,18 @@ export default function Card({
           )}
         </header>
       )}
-      {children}
+      <div className={hasHeader ? effectivePadding : effectivePadding}>
+        {children}
+      </div>
     </Tag>
   );
+
+  if (interactive) {
+    return (
+      <motion.div whileHover={cardHover} transition={TRANSITION_OUT}>
+        {Inner}
+      </motion.div>
+    );
+  }
+  return Inner;
 }

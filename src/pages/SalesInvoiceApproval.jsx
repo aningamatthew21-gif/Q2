@@ -7,8 +7,10 @@ import { formatCurrency } from '../utils/formatting';
 import { logActivity } from '../utils/logger';
 import { getInvoiceDate, generatePermanentId, getNextSequenceNumber } from '../utils/helpers';
 import { useApp } from '../context/AppContext';
+import { usePrompt } from '../components/v2/PromptDialog';
 
 const SalesInvoiceApproval = ({ navigateTo, userId }) => {
+    const { askText } = usePrompt();
     const { userEmail, appUser } = useApp();
     const username = userEmail ? userEmail.split('@')[0] : userId;
 
@@ -169,7 +171,18 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
                     }
                 }
             } else if (newStatus === 'Rejected') {
-                updatePayload.rejectionReason = prompt('Please enter the reason for rejection:') || 'Rejected by approver';
+                const reason = await askText({
+                    title:        'Reject this invoice',
+                    description:  'The salesperson will see this reason when they reopen the invoice. Empty reasons fall back to a generic "Rejected by approver".',
+                    label:        'Reason for rejection',
+                    placeholder:  'e.g. unit price for line 2 looks too high — verify with vendor.',
+                    multiline:    true,
+                    maxLength:    500,
+                    confirmLabel: 'Reject invoice',
+                    confirmTone:  'danger'
+                });
+                if (reason === null) return;
+                updatePayload.rejectionReason = (reason || '').trim() || 'Rejected by approver';
             }
 
             await api.put(`/invoices/${invoiceId}`, updatePayload);

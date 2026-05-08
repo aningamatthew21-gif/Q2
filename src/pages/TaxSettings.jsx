@@ -10,8 +10,10 @@ import PriceListSettings from '../components/settings/PriceListSettings';
 import CompanyDataSettings from '../components/settings/CompanyDataSettings';
 
 import { useActivityLog } from '../hooks/useActivityLog';
+import { usePrompt } from '../components/v2/PromptDialog';
 
 const TaxSettings = ({ navigateTo, userId, currentUser }) => {
+    const { askConfirm } = usePrompt();
     const { log } = useActivityLog();
     const [taxes, setTaxes] = useState([]);
     const [notification, setNotification] = useState(null);
@@ -90,8 +92,21 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
             setRatesHistory(updatedRates);
             setNotification({ type: 'success', message: 'Exchange rate saved successfully.' });
         } catch (error) {
-            console.error('handleSaveExchangeRate failed:', error);
-            setNotification({ type: 'error', message: 'Failed to save exchange rate.' });
+            // Surface the real backend error (status + message) so a 403,
+            // SQL constraint, or validation failure is actionable rather
+            // than the previous generic "Failed to save…" toast.
+            const status    = error?.response?.status;
+            const serverMsg = error?.response?.data?.error
+                           || error?.response?.statusText
+                           || error?.message
+                           || 'Unknown error';
+            console.error('handleSaveExchangeRate failed:', { status, error });
+            setNotification({
+                type: 'error',
+                message: status
+                    ? `Failed to save exchange rate (HTTP ${status}): ${serverMsg}`
+                    : `Failed to save exchange rate: ${serverMsg}`
+            });
         }
     };
 
@@ -146,10 +161,14 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
         setTaxes([...taxes, newTax]);
     };
 
-    const handleDeleteTax = (id) => {
-        if (window.confirm("Are you sure you want to delete this tax?")) {
-            setTaxes(taxes.filter(t => t.id !== id));
-        }
+    const handleDeleteTax = async (id) => {
+        const ok = await askConfirm({
+            title:        'Delete this tax?',
+            description:  'Removes the tax from the configured list. The change is staged — click Save to persist.',
+            confirmLabel: 'Delete tax',
+            confirmTone:  'danger'
+        });
+        if (ok) setTaxes(taxes.filter(t => t.id !== id));
     };
 
     const handleSaveChanges = async () => {
@@ -158,8 +177,24 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
             await log('SETTINGS_CHANGE', `Updated Tax Settings: ${taxes.length} taxes configured`, { category: 'settings' });
             setNotification({ type: 'success', message: 'Tax settings saved successfully!' });
         } catch (error) {
-            console.error("Error saving taxes: ", error);
-            setNotification({ type: 'error', message: 'Failed to save settings.' });
+            // Surface the real backend error (status + message) so a 403,
+            // SQL constraint, or validation failure is actionable rather
+            // than the previous generic "Failed to save…" toast. This was
+            // the diagnostic gap that triggered the original bug report —
+            // the user couldn't tell whether they were hitting a role
+            // guard, a schema drift, or a network failure.
+            const status    = error?.response?.status;
+            const serverMsg = error?.response?.data?.error
+                           || error?.response?.statusText
+                           || error?.message
+                           || 'Unknown error';
+            console.error('Save taxes failed:', { status, error });
+            setNotification({
+                type: 'error',
+                message: status
+                    ? `Failed to save settings (HTTP ${status}): ${serverMsg}`
+                    : `Failed to save settings: ${serverMsg}`
+            });
         }
     };
 
@@ -248,15 +283,25 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
 
                                         {/* 4. Calculation Basis (Accounting Logic) */}
                                         <div className="col-span-4">
-                                            <label className="text-xs text-gray-500 block mb-1">Applied On</label>
+                                            <label className="text-xs text-gray-500 block mb-1">Calculated on</label>
                                             <select
                                                 value={tax.on || 'levyTotal'}
                                                 onChange={e => handleTaxChange(tax.id, 'on', e.target.value)}
                                                 className="w-full p-2 border border-gray-300 rounded text-sm bg-white"
+                                                title={
+                                                    tax.on === 'subtotal'
+                                                        ? `Tax applies on the taxable amount only (subtotal + shipping + handling − discount), BEFORE any other taxes/levies. Standard for Ghanaian VAT under the 2023+ rules.`
+                                                        : `Tax cascades — applies on the taxable amount PLUS already-applied levies (e.g. NHIL + GETFund + COVID levies). Use this for the legacy pre-2023 VAT.`
+                                                }
                                             >
-                                                <option value="subtotal">Subtotal (Levy)</option>
-                                                <option value="levyTotal">Total + Levies (Tax)</option>
+                                                <option value="subtotal">Taxable amount only (no cascade)</option>
+                                                <option value="levyTotal">Cascade — subtotal + levies</option>
                                             </select>
+                                            <div className="text-[10.5px] text-n-500 mt-1 leading-tight">
+                                                {tax.on === 'subtotal'
+                                                    ? 'Applies on subtotal+charges before other levies. Use for VAT under 2023+ Ghanaian law.'
+                                                    : 'Applies on subtotal + already-applied levies (cascading). Pre-2023 VAT.'}
+                                            </div>
                                         </div>
 
                                         {/* 5. Delete Button */}

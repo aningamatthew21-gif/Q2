@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import JSZip from 'jszip';
 import { PDFService } from '../../services/PDFService';
 import GlassModal from '../common/GlassModal';
 import Button from '../common/Button';
@@ -116,11 +117,47 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
         document.body.removeChild(link);
     }, [vendorPDFs, buildFileName]);
 
-    const downloadAll = useCallback(() => {
-        vendorPDFs.forEach((_, idx) => {
-            setTimeout(() => downloadSingle(idx), idx * 300);
-        });
-    }, [vendorPDFs, downloadSingle]);
+    // The previous downloadAll fired N anchor-clicks staggered by 300ms.
+    // Browsers throttle / block rapid programmatic downloads from the same
+    // origin and only the first one or two would actually save — exactly
+    // the bug the user reported. We now bundle every vendor PDF into a
+    // single ZIP and trigger one download. One file, zero race condition.
+    const downloadAll = useCallback(async () => {
+        if (vendorPDFs.length === 0) return;
+        if (vendorPDFs.length === 1) { downloadSingle(0); return; }
+        try {
+            const zip = new JSZip();
+            for (const entry of vendorPDFs) {
+                const fileName = buildFileName(entry.vendor);
+                // pdfDoc.output('arraybuffer') gives a fresh AB so this is safe
+                // even after the blob URL was created earlier.
+                const ab = entry.pdfDoc.output('arraybuffer');
+                zip.file(fileName, ab);
+            }
+            const rfqNum = (rfqData?.rfqNumber || 'RFQ').replace(/[^a-zA-Z0-9-]/g, '');
+            const date   = new Date().toISOString().slice(0, 10);
+            const zipName = `${rfqNum}-vendor-pdfs-${date}.zip`;
+            const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = zipName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 1500);
+        } catch (err) {
+            console.error('[RFQPreviewModal] downloadAll (zip) failed', err);
+            // Fallback: serial downloads with a long enough gap that the
+            // browser doesn't block them.
+            for (let i = 0; i < vendorPDFs.length; i++) {
+                downloadSingle(i);
+                // Wait long enough that Chrome doesn't squelch the next click.
+                // 1000ms is the smallest interval that's reliable in our tests.
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+    }, [vendorPDFs, downloadSingle, buildFileName, rfqData]);
 
     const emailVendor = useCallback((idx) => {
         const entry = vendorPDFs[idx];

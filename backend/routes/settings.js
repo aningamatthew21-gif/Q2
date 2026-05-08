@@ -27,25 +27,78 @@ router.get('/taxes', catchAsync(async (req, res) => {
 
 router.post('/taxes', requireRole('controller', 'admin'), catchAsync(async (req, res) => {
   const { taxArray } = req.body;
-  
-  await transaction(async (conn) => {
-    await conn.execute('DELETE FROM QA_TAX_SETTINGS');
-    
-    for (let i = 0; i < taxArray.length; i++) {
-      const tax = taxArray[i];
-      await conn.execute(`
-        INSERT INTO QA_TAX_SETTINGS (TAX_ID, TAX_NAME, TAX_RATE, IS_ENABLED, APPLIED_ON, SORT_ORDER)
-        VALUES (:id, :nm, :rt, :en, :onV, :so)
-      `, {
-        id: tax.id,
-        nm: tax.name,
-        rt: tax.rate || 0,
-        en: tax.enabled ? 1 : 0,
-        onV: tax.on || 'subtotal',
-        so: i
+
+  // ── Input validation ──────────────────────────────────────
+  // The previous handler trusted `taxArray` blindly and let any error
+  // bubble up as an opaque 500. Validating here lets us return a 400
+  // with a precise message ("Tax 'X' has a non-numeric rate") that the
+  // user actually sees — rather than the generic "Failed to save
+  // settings." toast that prompted the bug report.
+  if (!Array.isArray(taxArray)) {
+    return res.status(400).json({
+      success: false,
+      error: 'taxArray is required and must be an array.'
+    });
+  }
+  for (const t of taxArray) {
+    if (!t || typeof t !== 'object') {
+      return res.status(400).json({ success: false, error: 'Each tax entry must be an object.' });
+    }
+    if (!t.id || !t.name) {
+      return res.status(400).json({ success: false, error: 'Each tax needs both id and name.' });
+    }
+    if (String(t.id).length > 50) {
+      return res.status(400).json({ success: false, error: `Tax id "${t.id}" exceeds 50 characters.` });
+    }
+    if (String(t.name).length > 100) {
+      return res.status(400).json({ success: false, error: `Tax name "${t.name}" exceeds 100 characters.` });
+    }
+    const onVal = t.on || 'subtotal';
+    if (!['subtotal', 'levyTotal'].includes(onVal)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid "on" value: ${onVal}. Must be 'subtotal' or 'levyTotal'.`
       });
     }
-  });
+    if (Number.isNaN(Number(t.rate))) {
+      return res.status(400).json({
+        success: false,
+        error: `Tax "${t.name}" has a non-numeric rate (${t.rate}).`
+      });
+    }
+  }
+
+  // ── Persist with diagnostic catch ─────────────────────────
+  // Wrapping the transaction in a try/catch lets us return the actual
+  // Oracle error message + ORA-######## code, so schema drift, length
+  // overflows, or constraint violations surface as a readable toast.
+  try {
+    await transaction(async (conn) => {
+      await conn.execute('DELETE FROM QA_TAX_SETTINGS');
+
+      for (let i = 0; i < taxArray.length; i++) {
+        const tax = taxArray[i];
+        await conn.execute(`
+          INSERT INTO QA_TAX_SETTINGS (TAX_ID, TAX_NAME, TAX_RATE, IS_ENABLED, APPLIED_ON, SORT_ORDER)
+          VALUES (:id, :nm, :rt, :en, :onV, :so)
+        `, {
+          id:  tax.id,
+          nm:  tax.name,
+          rt:  Number(tax.rate) || 0,
+          en:  tax.enabled ? 1 : 0,
+          onV: tax.on || 'subtotal',
+          so:  i
+        });
+      }
+    });
+  } catch (err) {
+    console.error('[settings/taxes] transaction failed', err);
+    return res.status(500).json({
+      success: false,
+      error:  `Database write failed: ${err.message}`,
+      oraCode: err.errorNum || null
+    });
+  }
 
   emitToAll('settings:taxes:updated');
   res.json({ success: true });

@@ -7,10 +7,13 @@ import PageHeader from '../components/common/PageHeader';
 import Button from '../components/common/Button';
 
 import { useActivityLog } from '../hooks/useActivityLog';
+import { SortableHeader, useSortable } from '../components/v2';
 import { getInvoiceDate } from '../utils/helpers';
+import { usePrompt } from '../components/v2/PromptDialog';
 
 const MyInvoices = ({ navigateTo, userId, pageContext }) => {
     const { log } = useActivityLog();
+    const { askText, askConfirm } = usePrompt();
     const [previewData, setPreviewData] = useState(null);
 
     // M7 — read filter state from URL on mount so browser reload / shared link keeps it
@@ -109,6 +112,17 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
             return yearMatch && monthMatch;
         });
     }, [myInvoices, activeTab, selectedYear, selectedMonth]);
+
+    // Project numeric / date columns so the sort hook picks the right
+    // comparator (locale string for ID + customer + status, numeric for
+    // amount, parsed-date for date).
+    const sortableInvoices = useMemo(() => filteredInvoices.map(inv => ({
+        ...inv,
+        _amount: Number(inv.total) || 0,
+        _date:   getInvoiceDate(inv).getTime() || 0
+    })), [filteredInvoices]);
+    const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedInvoices } =
+        useSortable(sortableInvoices, '_date', 'desc');
 
     const { years, months } = useMemo(() => {
         const uniqueYears = new Set();
@@ -278,76 +292,143 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
         // Stock deduction point: inventory is decremented at controller Approval (SalesInvoiceApproval),
         // NOT here. Acceptance just recognises revenue — no stock change needed.
         // Rejection (handleMarkRejected) restores stock because that undoes the approval deduction.
-        if (window.confirm(`Mark invoice ${invoice.approvedInvoiceId || invoice.id} as Accepted by Customer? This will recognize revenue.`)) {
-            try {
-                await api.put(`/invoices/${invoice.id}`, { status: 'Customer Accepted', customerActionAt: new Date() });
-                log('INVOICE_ACTION', `Marked Invoice ${invoice.id} as Customer Accepted`, { documentId: invoice.id });
-            } catch (error) { console.error('Error marking accepted:', error); }
-        }
+        const ok = await askConfirm({
+            title:        `Mark ${invoice.approvedInvoiceId || invoice.id} as accepted?`,
+            description:  'This recognizes revenue and cannot be undone from the customer side.',
+            confirmLabel: 'Mark accepted',
+            confirmTone:  'primary'
+        });
+        if (!ok) return;
+        try {
+            await api.put(`/invoices/${invoice.id}`, { status: 'Customer Accepted', customerActionAt: new Date() });
+            log('INVOICE_ACTION', `Marked Invoice ${invoice.id} as Customer Accepted`, { documentId: invoice.id });
+        } catch (error) { console.error('Error marking accepted:', error); }
     };
 
     const handleMarkRejected = async (invoice) => {
-        const reason = prompt("Please enter the reason for rejection:");
-        if (!reason) return;
+        const reason = await askText({
+            title:        `Reject ${invoice.approvedInvoiceId || invoice.id}`,
+            description:  'The salesperson will see this exact reason on their My Invoices view, in the activity history, and on any re-revised draft. Inventory will be restored.',
+            label:        'Reason for rejection',
+            placeholder:  'e.g. price mismatch on line 2…',
+            multiline:    true,
+            required:     true,
+            requiredMessage: 'A reason is required so the salesperson knows what to fix.',
+            maxLength:    500,
+            confirmLabel: 'Reject invoice',
+            confirmTone:  'danger'
+        });
+        if (reason === null) return;
 
+        // Two-phase: status FIRST, inventory restore as best-effort.
+        // The earlier code wrapped both in a single try/catch, so a single
+        // missing inventory row (404 from /inventory/:id, common for legacy
+        // line items where item.id was a SOURCED-… or had been deleted)
+        // would fail the entire reject and the user got "Request failed
+        // with status code 404". Now the rejection persists even if some
+        // restores fail, and we tell the user exactly what didn't restore.
         try {
-            // 1. Update Invoice Status
             await api.put(`/invoices/${invoice.id}`, {
                 status: 'Customer Rejected',
                 customerActionAt: new Date(),
                 rejectionReason: reason
             });
-
-            // 2. Restore Inventory
-            const itemsToRestore = invoice.lineItems || invoice.items || [];
-            for (const item of itemsToRestore) {
-                if (item.id && item.type !== 'sourced') {
-                    // Fetch current stock, increment, and update
-                    const invRes = await api.get(`/inventory/${item.id}`);
-                    if (invRes.success) {
-                        const newStock = (invRes.data.stock || 0) + (Number(item.quantity) || 0);
-                        await api.put(`/inventory/${item.id}`, { stock: newStock });
-                    }
-                }
-            }
-
-            log('INVOICE_ACTION', `Marked Invoice ${invoice.id} as Customer Rejected`, {
-                documentId: invoice.id,
-                reason
+        } catch (err) {
+            console.error('Reject invoice — status update failed:', err);
+            await askConfirm({
+                title:        'Could not update the invoice',
+                description:  err?.response?.data?.error || err.message || 'The server rejected the status change. The invoice was NOT rejected.',
+                confirmLabel: 'OK',
+                cancelLabel:  ''
             });
-            console.log("✅ Invoice rejected and inventory restored.");
-        } catch (error) {
-            console.error('Error marking rejected:', error);
-            alert(`Failed to reject invoice: ${error.message}`);
+            return;
+        }
+
+        const itemsToRestore = (invoice.lineItems || invoice.items || []).filter(it =>
+            it && it.id &&
+            it.type !== 'sourced' &&
+            !String(it.id).toUpperCase().startsWith('SOURCED-')
+        );
+        const restoreFailures = [];
+        for (const item of itemsToRestore) {
+            try {
+                const invRes = await api.get(`/inventory/${item.id}`);
+                if (invRes?.success) {
+                    const newStock = (invRes.data.stock || 0) + (Number(item.quantity) || 0);
+                    await api.put(`/inventory/${item.id}`, { stock: newStock });
+                }
+            } catch (err) {
+                console.warn(`Inventory restore skipped for ${item.id}:`, err?.response?.status || err.message);
+                restoreFailures.push({ id: item.id, name: item.name || item.description, status: err?.response?.status });
+            }
+        }
+
+        log('INVOICE_ACTION', `Marked Invoice ${invoice.id} as Customer Rejected`, {
+            documentId: invoice.id, reason,
+            restoreFailures: restoreFailures.length
+        });
+
+        if (restoreFailures.length) {
+            await askConfirm({
+                title:        'Invoice rejected — some stock not restored',
+                description:  `The rejection went through and the salesperson will see the reason. ${restoreFailures.length} item${restoreFailures.length === 1 ? '' : 's'} could not be restored to inventory because the SKU is no longer in the catalogue:\n\n${restoreFailures.map(f => `• ${f.name || f.id}${f.status === 404 ? ' (not in inventory)' : ''}`).join('\n')}`,
+                confirmLabel: 'OK',
+                cancelLabel:  ''
+            });
         }
     };
 
     const handleRevise = async (invoice) => {
-        if (window.confirm(`Revise invoice ${invoice.approvedInvoiceId || invoice.id}? This will reset approval signatures, restore inventory, and move it to Draft.`)) {
-            try {
-                await api.put(`/invoices/${invoice.id}`, { 
-                    status: 'Draft', 
-                    controllerSignature: null, 
-                    approvedBy: null, 
-                    signatureTimestamp: null 
-                });
-                
-                const itemsToRestore = invoice.lineItems || invoice.items || [];
-                // Only restore stock for inventory items — sourced items were never deducted from stock
-                for (const item of itemsToRestore) {
-                    if (item.id && item.type !== 'sourced') {
-                        const invRes = await api.get(`/inventory/${item.id}`);
-                        if (invRes.success) {
-                            const newStock = (invRes.data.stock || 0) + (Number(item.quantity) || 0);
-                            await api.put(`/inventory/${item.id}`, { stock: newStock });
-                        }
-                    }
-                }
+        const ok = await askConfirm({
+            title:        `Revise ${invoice.approvedInvoiceId || invoice.id}?`,
+            description:  'Resets approval signatures, restores inventory for inventory-tracked items, and moves the invoice back to Draft.',
+            confirmLabel: 'Revise',
+            confirmTone:  'danger'
+        });
+        if (!ok) return;
 
-                log('INVENTORY_ACTION', `Restored stock for revised Invoice ${invoice.id}`, { documentId: invoice.id, itemCount: itemsToRestore.filter(i => i.type !== 'sourced').length });
-                navigateTo('invoiceEditor', { invoiceId: invoice.id });
-            } catch (error) { console.error('Error revising invoice:', error); alert('Failed to revise invoice. Please try again.'); }
+        // Same two-phase approach as reject — status first, restore as
+        // best-effort, surface failures without blocking the workflow.
+        try {
+            await api.put(`/invoices/${invoice.id}`, {
+                status: 'Draft',
+                controllerSignature: null,
+                approvedBy: null,
+                signatureTimestamp: null
+            });
+        } catch (err) {
+            console.error('Revise invoice — status update failed:', err);
+            await askConfirm({
+                title:        'Could not revise the invoice',
+                description:  err?.response?.data?.error || err.message || 'The server rejected the status change.',
+                confirmLabel: 'OK',
+                cancelLabel:  ''
+            });
+            return;
         }
+
+        const itemsToRestore = (invoice.lineItems || invoice.items || []).filter(it =>
+            it && it.id &&
+            it.type !== 'sourced' &&
+            !String(it.id).toUpperCase().startsWith('SOURCED-')
+        );
+        let restored = 0;
+        for (const item of itemsToRestore) {
+            try {
+                const invRes = await api.get(`/inventory/${item.id}`);
+                if (invRes?.success) {
+                    const newStock = (invRes.data.stock || 0) + (Number(item.quantity) || 0);
+                    await api.put(`/inventory/${item.id}`, { stock: newStock });
+                    restored++;
+                }
+            } catch (err) {
+                console.warn(`Inventory restore skipped for ${item.id}:`, err?.response?.status || err.message);
+            }
+        }
+        log('INVENTORY_ACTION', `Restored stock for revised Invoice ${invoice.id}`, {
+            documentId: invoice.id, itemCount: restored
+        });
+        navigateTo('invoiceEditor', { invoiceId: invoice.id });
     };
 
     const formatListAmount = (amount, currency) => {
@@ -399,9 +480,18 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                            <thead className="bg-gray-50"><tr><th className="p-3 font-semibold">Invoice ID</th><th className="p-3 font-semibold">Customer</th><th className="p-3 font-semibold">Date</th><th className="p-3 font-semibold text-right">Amount</th><th className="p-3 font-semibold text-center">Status</th><th className="p-3 font-semibold text-center">Actions</th></tr></thead>
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="p-3 text-left"><SortableHeader  label="Invoice ID" sortKey="id"           current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-left"><SortableHeader  label="Customer"   sortKey="customerName" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-left"><SortableHeader  label="Date"       sortKey="_date"        current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-right"><SortableHeader label="Amount"     sortKey="_amount"      current={sortKey} dir={sortDir} onToggle={toggleSort} align="right" /></th>
+                                    <th className="p-3 text-center"><SortableHeader label="Status"    sortKey="status"       current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                    <th className="p-3 font-semibold text-[11px] text-n-600 uppercase tracking-wider text-center">Actions</th>
+                                </tr>
+                            </thead>
                             <tbody>
-                                {filteredInvoices.length === 0 ? (<tr><td colSpan="6" className="p-8 text-center text-gray-500">No invoices found in this category.</td></tr>) : (filteredInvoices.map(inv => (
+                                {sortedInvoices.length === 0 ? (<tr><td colSpan="6" className="p-8 text-center text-gray-500">No invoices found in this category.</td></tr>) : (sortedInvoices.map(inv => (
                                     <tr key={inv.id} className="border-b hover:bg-gray-50">
                                         <td className="p-3 font-medium">{inv.approvedInvoiceId || inv.id}</td>
                                         <td className="p-3">{inv.customerName}</td>

@@ -11,6 +11,7 @@ import { invalidateCache } from '../utils/cache';
 import { useRealtimeVendors } from '../hooks/useRealtimeVendors';
 import { useDebounce } from '../hooks/useDebounce';
 import { useApp } from '../context/AppContext';
+import { SortableHeader, useSortable } from '../components/v2';
 
 const VendorManagement = ({ navigateTo, userId, currentUser }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -80,6 +81,9 @@ const VendorManagement = ({ navigateTo, userId, currentUser }) => {
         );
     }, [vendors, debouncedSearchTerm]);
 
+    const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedVendors } =
+        useSortable(filteredVendors, 'name', 'asc');
+
     return (
         <>
             {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
@@ -137,18 +141,18 @@ const VendorManagement = ({ navigateTo, userId, currentUser }) => {
                         <table className="w-full text-left">
                             <thead className="bg-surface-sunken">
                                 <tr>
-                                    <th className="p-3 font-semibold">Name</th>
-                                    <th className="p-3 font-semibold">Category</th>
-                                    <th className="p-3 font-semibold">Contact</th>
-                                    <th className="p-3 font-semibold">Email</th>
-                                    <th className="p-3 font-semibold text-center">Rating</th>
-                                    <th className="p-3 font-semibold text-center">Lead Time</th>
-                                    <th className="p-3 font-semibold text-center">Status</th>
-                                    <th className="p-3 font-semibold text-center">Actions</th>
+                                    <th className="p-3 text-left"><SortableHeader  label="Name"      sortKey="name"          current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-left"><SortableHeader  label="Category"  sortKey="category"      current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-left"><SortableHeader  label="Contact"   sortKey="contactPerson" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-left"><SortableHeader  label="Email"     sortKey="contactEmail"  current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-center"><SortableHeader label="Rating"   sortKey="rating"        current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                    <th className="p-3 text-center"><SortableHeader label="Lead Time" sortKey="leadTimeDays" current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                    <th className="p-3 text-center"><SortableHeader label="Status"   sortKey="status"        current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                    <th className="p-3 font-semibold text-[11px] text-n-600 uppercase tracking-wider text-center">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredVendors.map(v => (
+                                {sortedVendors.map(v => (
                                     <tr key={v.id} className="border-b hover:bg-surface-sunken">
                                         <td className="p-3 font-medium">{v.name}</td>
                                         <td className="p-3">{v.category || '—'}</td>

@@ -1,230 +1,193 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { X, ArrowLeft, Send, Mail, Download } from 'lucide-react';
 import { PDFService } from '../services/PDFService.js';
 import { useApp } from '../context/AppContext';
-import GlassModal from './common/GlassModal';
-import Button from './common/Button';
+import PdfViewer from './v2/PdfViewer';
+import Button from './v2/Button';
+import { dialogVariants, backdropVariants } from './v2/motion';
 
-export default function PreviewModal({ open, onClose, payload, mode = 'invoice', onConfirm, isDistribution = false, onEmail, onDownload }) {
-  useApp(); // Ensure we're inside AppProvider context
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [pdfBase64, setPdfBase64] = useState(null);
-  const iframeRef = useRef(null);
-  const [zoom, setZoom] = useState('page-width');
-
-  useEffect(() => {
-    console.log('🟡 [DEBUG] PreviewModal mount/update', { open, mode, hasPayload: !!payload });
-  }, [open, mode, payload]);
+/**
+ * PreviewModal — full-screen Fluent 2 PDF preview.
+ *
+ * Replaces the old GlassModal-wrapped iframe (which surfaced the browser /
+ * Chrome PDF chrome with all its mismatched typography). Now renders the
+ * generated PDF inside our custom <PdfViewer>, themed to match the app and
+ * dark-mode aware.
+ *
+ * Layout:
+ *   ┌──────────────────────────────────────────────────────────────┐
+ *   │ Header: title + close                                         │
+ *   ├──────────────────────────────────────────────────────────────┤
+ *   │ Helper line: "preview only / final document"                  │
+ *   ├──────────────────────────────────────────────────────────────┤
+ *   │ <PdfViewer> — toolbar, thumbnails, scrollable canvas pages   │
+ *   ├──────────────────────────────────────────────────────────────┤
+ *   │ Footer actions:                                                │
+ *   │   submit-mode  → [Back & Edit]   [Continue & Submit]          │
+ *   │   distribute   → [Download Only] [Download & Email]  [Done]   │
+ *   └──────────────────────────────────────────────────────────────┘
+ */
+export default function PreviewModal({
+  open, onClose, payload, mode = 'invoice',
+  onConfirm, isDistribution = false, onEmail, onDownload
+}) {
+  useApp(); // ensure inside AppProvider
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState(null);
+  const [pdfBase64, setPdfBase64]   = useState(null);
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     setError(null);
     setPdfBase64(null);
     setLoading(true);
-
-    const generatePDF = async () => {
+    (async () => {
       try {
-        console.log('🟠 [DEBUG] Generating preview PDF...', { mode });
         const pdf = mode === 'quote'
           ? await PDFService.generateQuotePDF(payload)
           : await PDFService.generateInvoicePDF(payload);
         const dataUri = pdf.output('datauristring');
-        const base64 = dataUri.replace('data:application/pdf;filename=generated.pdf;base64,', '');
+        const base64  = dataUri.replace(/^data:application\/pdf(;[^,]*)?,/, '');
+        if (cancelled) return;
         setPdfBase64(base64);
         setLoading(false);
-        console.log('✅ [DEBUG] Preview PDF generated');
       } catch (err) {
+        if (cancelled) return;
         console.error('Preview generation failed:', err);
         setError(err.message || 'Failed to generate preview');
         setLoading(false);
       }
-    };
-
-    generatePDF();
+    })();
+    return () => { cancelled = true; };
   }, [open, mode, payload]);
 
-  const iframeSrc = useMemo(() => {
-    if (!pdfBase64) return null;
-    const zoomParam = encodeURIComponent(zoom);
-    const src = `data:application/pdf;base64,${pdfBase64}#zoom=${zoomParam}&page=1`;
-    console.log('🟢 [DEBUG] iframe src prepared (length):', src.length);
-    return src;
-  }, [pdfBase64, zoom]);
-
-  useEffect(() => {
-    if (!pdfBase64) return;
-    if (iframeRef.current) {
-      const zoomParam = encodeURIComponent(zoom);
-      iframeRef.current.src = `data:application/pdf;base64,${pdfBase64}#zoom=${zoomParam}&page=1`;
-    }
-  }, [zoom, pdfBase64]);
-
-  if (!open) return null;
+  const filename = `${payload?.customer?.name || 'Customer'} - ${payload?.invoiceNumber || payload?.invoiceId || payload?.quoteId || 'Document'}.pdf`;
 
   const triggerLocalDownload = () => {
     if (!pdfBase64) return;
-    const fileName = `${payload.customer?.name || 'Customer'} - ${payload.invoiceNumber || payload.invoiceId || payload.quoteId || 'Document'}.pdf`;
     const link = document.createElement('a');
     link.href = `data:application/pdf;base64,${pdfBase64}`;
-    link.download = fileName;
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    console.log('🔵 [DEBUG] Download triggered:', fileName);
+    onDownload?.();
   };
 
   return (
-    <GlassModal
-      open
-      onClose={onClose}
-      size="full"
-      hideCloseButton
-      closeOnBackdrop={false}
-      className="p-0"
-    >
-      <div className="flex flex-col h-full">
-        <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-ink">
-            {isDistribution ? 'Invoice Preview' : 'Preview — Document you’re submitting for approval'}
-          </h3>
-          <button onClick={onClose} className="text-ink-muted hover:text-ink" aria-label="Close preview">✕</button>
-        </div>
-        <div className="flex-1 p-3 overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-3 text-sm text-ink-muted">
-              <span className="hidden sm:inline">
-                {isDistribution
-                  ? 'This is the final approved document.'
-                  : 'This is a preview — the final PDF will be generated if you Continue & Submit.'}
-              </span>
-              <label className="flex items-center gap-2">
-                <span className="text-ink-muted">Zoom</span>
-                <select value={zoom} onChange={(e) => setZoom(e.target.value)} className="border border-line rounded-card px-2 py-1 text-sm bg-surface">
-                  <option value="page-width">Fit width</option>
-                  <option value="page-fit">Fit page</option>
-                  <option value="75">75%</option>
-                  <option value="100">100%</option>
-                  <option value="125">125%</option>
-                  <option value="150">150%</option>
-                  <option value="175">175%</option>
-                  <option value="200">200%</option>
-                </select>
-              </label>
-            </div>
-            <div className="flex gap-2">
-              {iframeSrc && (
-                <>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      triggerLocalDownload();
-                      if (onDownload) onDownload();
-                    }}
-                  >
-                    ⬇ Download Only
-                  </Button>
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-50 flex flex-col"
+          variants={backdropVariants}
+          initial="initial"
+          animate="enter"
+          exit="exit"
+        >
+          <motion.div className="absolute inset-0 bg-n-900/55 backdrop-blur-sm" variants={backdropVariants} />
 
-                  {isDistribution && onEmail && (
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => {
-                        triggerLocalDownload();
-                        onEmail();
-                      }}
-                    >
-                      📧 Download & Email
-                    </Button>
-                  )}
-                </>
+          <motion.div
+            variants={dialogVariants}
+            className="relative m-4 sm:m-6 lg:m-8 flex-1 bg-white dark:bg-n-50 border border-n-200 rounded-panel shadow-popover overflow-hidden flex flex-col"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="preview-title"
+          >
+            {/* HEADER */}
+            <header className="flex-shrink-0 flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-n-200">
+              <div className="min-w-0">
+                <h2 id="preview-title" className="text-[15px] font-semibold text-n-800 truncate">
+                  {isDistribution
+                    ? 'Document preview'
+                    : mode === 'quote'
+                      ? 'Quote preview — submitting for approval'
+                      : 'Invoice preview — submitting for approval'}
+                </h2>
+                <p className="text-[12px] text-n-500 mt-0.5 truncate">
+                  {isDistribution
+                    ? 'This is the final approved document.'
+                    : 'The final PDF is generated when you click Continue & Submit.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-8 h-8 grid place-items-center rounded-md text-n-500 hover:bg-n-100 hover:text-n-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent flex-shrink-0"
+                aria-label="Close preview"
+              ><X className="w-4 h-4" /></button>
+            </header>
+
+            {/* BODY */}
+            <div className="flex-1 min-h-0">
+              {loading && <SkeletonViewer />}
+              {!loading && error && (
+                <div className="h-full grid place-items-center p-6">
+                  <div className="max-w-sm text-center">
+                    <div className="w-12 h-12 rounded-full bg-err-soft text-err grid place-items-center mx-auto mb-3">!</div>
+                    <h3 className="text-[15px] font-semibold text-n-800">Couldn’t generate the preview</h3>
+                    <p className="text-[13px] text-n-500 mt-1">{error}</p>
+                    <div className="mt-4">
+                      <Button variant="primary" onClick={() => { setError(null); setLoading(true); /* force re-effect by toggling key */ setPdfBase64(null); }}>Retry</Button>
+                    </div>
+                  </div>
+                </div>
               )}
+              {!loading && !error && pdfBase64 && (
+                <PdfViewer src={pdfBase64} filename={filename} onDownload={onDownload} />
+              )}
+            </div>
 
+            {/* FOOTER */}
+            <footer className="flex-shrink-0 flex items-center justify-end gap-2 px-4 sm:px-5 py-3 border-t border-n-200 bg-n-0">
               {isDistribution ? (
                 <>
-                  {onEmail && !iframeSrc && (
-                    <Button variant="primary" size="sm" onClick={onEmail}>
-                      Send Email Only
-                    </Button>
+                  <Button iconLeft={<Download />} onClick={triggerLocalDownload} disabled={!pdfBase64}>Download</Button>
+                  {onEmail && (
+                    <Button variant="primary" iconLeft={<Mail />} onClick={() => { triggerLocalDownload(); onEmail(); }}>Download &amp; email</Button>
                   )}
-                  <Button variant="secondary" size="sm" onClick={onClose}>
-                    Done / Close
-                  </Button>
+                  <Button onClick={onClose}>Done</Button>
                 </>
               ) : (
                 <>
-                  <Button variant="danger" size="sm" onClick={() => { console.log('🟡 [DEBUG] PreviewModal Back & Edit'); onClose?.(); }}>
-                    Back & Edit
-                  </Button>
-                  <Button variant="primary" size="sm" disabled={loading}
-                    onClick={() => { console.log('🟢 [DEBUG] PreviewModal Continue & Submit'); onConfirm?.(); }}>
-                    Continue & Submit
-                  </Button>
+                  <Button variant="ghost" iconLeft={<ArrowLeft />} onClick={onClose}>Back &amp; edit</Button>
+                  <Button variant="primary" iconRight={<Send />} disabled={loading} onClick={() => onConfirm?.()}>Continue &amp; submit</Button>
                 </>
               )}
-            </div>
-          </div>
-          <div className="flex-1 border border-line rounded-card overflow-auto bg-surface-sunken">
-            {loading && (
-              <div className="w-full h-full flex flex-col items-center justify-center p-6">
-                <div className="w-full max-w-2xl mx-auto bg-surface shadow-card rounded-card border border-line p-8 space-y-4 animate-pulse">
-                  <div className="flex items-center justify-between">
-                    <div className="h-6 bg-surface-sunken rounded w-40" />
-                    <div className="h-6 bg-surface-sunken rounded w-24" />
-                  </div>
-                  <div className="h-3 bg-surface-sunken rounded w-2/3" />
-                  <div className="h-3 bg-surface-sunken rounded w-1/2" />
-                  <div className="mt-6 space-y-2">
-                    <div className="h-4 bg-surface-sunken rounded" />
-                    <div className="h-4 bg-surface-sunken rounded" />
-                    <div className="h-4 bg-surface-sunken rounded w-5/6" />
-                    <div className="h-4 bg-surface-sunken rounded w-4/6" />
-                    <div className="h-4 bg-surface-sunken rounded w-3/6" />
-                  </div>
-                  <div className="mt-8 flex justify-end">
-                    <div className="h-8 bg-surface-sunken rounded w-32" />
-                  </div>
-                </div>
-                <div className="mt-4 flex items-center text-ink-muted text-sm">
-                  <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full mr-2" />
-                  Generating preview…
-                </div>
-              </div>
-            )}
-            {!loading && error && (
-              <div className="text-danger text-sm p-4">
-                <p className="font-medium mb-2">Failed to generate preview.</p>
-                <p className="mb-3">{error}</p>
-                <Button variant="primary" size="sm" onClick={() => {
-                  console.log('🟠 [DEBUG] Retry preview');
-                  setError(null);
-                  setLoading(true);
-                  setPdfBase64(null);
-                  setTimeout(async () => {
-                    try {
-                      const pdf = mode === 'quote'
-                        ? await PDFService.generateQuotePDF(payload)
-                        : await PDFService.generateInvoicePDF(payload);
-                      const dataUri = pdf.output('datauristring');
-                      const base64 = dataUri.replace('data:application/pdf;filename=generated.pdf;base64,', '');
-                      setPdfBase64(base64);
-                      setLoading(false);
-                      console.log('✅ [DEBUG] Retry success');
-                    } catch (e) {
-                      console.error('❌ [ERROR] Retry failed', e);
-                      setError(e.message || 'Failed again');
-                      setLoading(false);
-                    }
-                  }, 0);
-                }}>Retry</Button>
-              </div>
-            )}
-            {!loading && !error && iframeSrc && (
-              <iframe ref={iframeRef} title="PDF Preview" src={iframeSrc} className="w-full h-full" onLoad={() => console.log('🟢 [DEBUG] PDF iframe loaded')} />
-            )}
-          </div>
+            </footer>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function SkeletonViewer() {
+  return (
+    <div className="h-full bg-n-50 dark:bg-n-0 grid place-items-center p-6">
+      <div className="w-full max-w-2xl mx-auto bg-white shadow-card rounded-card border border-n-200 p-8 space-y-4 v2-shimmer-bg">
+        <div className="flex items-center justify-between">
+          <div className="h-6 w-40 bg-n-100 rounded" />
+          <div className="h-6 w-24 bg-n-100 rounded" />
+        </div>
+        <div className="h-3 w-2/3 bg-n-100 rounded" />
+        <div className="h-3 w-1/2 bg-n-100 rounded" />
+        <div className="mt-6 space-y-2">
+          <div className="h-4 bg-n-100 rounded" />
+          <div className="h-4 bg-n-100 rounded" />
+          <div className="h-4 w-5/6 bg-n-100 rounded" />
+          <div className="h-4 w-4/6 bg-n-100 rounded" />
+          <div className="h-4 w-3/6 bg-n-100 rounded" />
+        </div>
+        <div className="mt-8 flex justify-end">
+          <div className="h-8 w-32 bg-n-100 rounded" />
+        </div>
+        <div className="mt-3 flex items-center justify-center text-[13px] text-n-500">
+          <div className="animate-spin h-4 w-4 border-2 border-accent border-t-transparent rounded-full mr-2" />
+          Generating preview…
         </div>
       </div>
-    </GlassModal>
+    </div>
   );
 }
