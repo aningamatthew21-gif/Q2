@@ -4,7 +4,12 @@ const express = require('express');
 const crypto = require('crypto');
 const { execute, transaction } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
+const {
+  authMiddleware,
+  requireRole,
+  requirePermission,
+  sodCheckRunner
+} = require('../middleware/authMiddleware');
 const { emitToAll } = require('../utils/socketEmitter');
 const { sendRfqEmail } = require('../utils/email');
 const { calculateVendorScores, DEFAULT_WEIGHTS } = require('../utils/vendorScoring');
@@ -929,7 +934,7 @@ router.delete('/:id', requireRole('procurement', 'controller', 'admin'), catchAs
  * decision. Finance can SEE pending RFQs on their dashboard for visibility but cannot
  * approve or reject them.
  */
-router.post('/:id/approve', requireRole('procurement', 'admin'), catchAsync(async (req, res) => {
+router.post('/:id/approve', requirePermission('rfq.approve.award'), catchAsync(async (req, res) => {
   const { id } = req.params;
 
   // Tagged step logging — when the approve flow throws a 500, the backend log
@@ -947,6 +952,18 @@ router.post('/:id/approve', requireRole('procurement', 'admin'), catchAsync(asyn
   log('rfq loaded', { status: rfqRes.rows[0].STATUS });
   if (rfqRes.rows[0].STATUS !== 'PENDING_APPROVAL') {
     return res.status(400).json({ success: false, error: 'RFQ is not pending approval' });
+  }
+
+  // Separation of duties — the procurement officer who recommended the
+  // vendor cannot also be the head who approves the award. Enforced
+  // server-side so a crafted POST can't bypass the UI gate.
+  const rfqRow = rfqRes.rows[0];
+  const sodErr = sodCheckRunner('rfq.approve.award')(req.user, {
+    recommendedBy: rfqRow.RECOMMENDED_BY
+  });
+  if (sodErr) {
+    log('SoD violation', { user: req.user.email, recommendedBy: rfqRow.RECOMMENDED_BY });
+    return res.status(403).json({ success: false, error: sodErr });
   }
 
   // H1 — RECOMMENDED_VENDOR_ID is now the canonical pre-approval source. Fall back

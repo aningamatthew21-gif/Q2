@@ -3,11 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, FilePlus, Files, UserCheck, CheckCheck,
   ClipboardList, FileText, Factory, Boxes, Users, Tags,
-  History, Sliders, X
+  History, Sliders, X, ShieldCheck
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useApp } from '../../context/AppContext';
 import { navTap, TRANSITION_FAST } from './motion';
+import { canOpenPage, legacyRoleToTiered, ROLES } from '../../utils/permissions';
 
 /**
  * LeftNav — flat Fluent 2 navigation rail.
@@ -61,7 +62,8 @@ const ROLE_SECTIONS = {
       { page: 'taxSettings',         label: 'Tax',           icon: Sliders        },
       { page: 'procurementSettings', label: 'Procurement',   icon: Sliders        },
       { page: 'mySignatures',        label: 'My Signatures', icon: FileText       },
-      { page: 'auditTrail',          label: 'Audit',         icon: History        }
+      { page: 'auditTrail',          label: 'Audit',         icon: History        },
+      { page: 'userManagement',      label: 'Users',         icon: ShieldCheck    }
     ]}
   ],
   procurement: [
@@ -86,10 +88,27 @@ const DRILL_PARENT = {
   salesInvoiceReview:        'salesInvoiceApproval'
 };
 
+// Pick the visible section layout for the user. We honour BOTH the legacy
+// role names AND the new tiered roles so the rail keeps working through the
+// rollout. Section content is shared across tiers within a department (an
+// officer and a head see the same items — the difference is the *actions*
+// available inside each page, not the page list itself).
 function sectionsForRole(role) {
-  if (role === 'admin' || role === 'controller') return ROLE_SECTIONS.controller;
-  if (role === 'procurement')                    return ROLE_SECTIONS.procurement;
-  return ROLE_SECTIONS.sales;
+  const tiered = isTiered(role) ? role : legacyRoleToTiered(role);
+  switch (tiered) {
+    case ROLES.ADMIN:
+    case ROLES.FINANCE_HEAD:
+    case ROLES.FINANCE_OFFICER:
+      return ROLE_SECTIONS.controller;
+    case ROLES.PROCUREMENT_HEAD:
+    case ROLES.PROCUREMENT_OFFICER:
+      return ROLE_SECTIONS.procurement;
+    default:
+      return ROLE_SECTIONS.sales;
+  }
+}
+function isTiered(r) {
+  return Object.values(ROLES).indexOf(r) >= 0;
 }
 function activeMatch(itemPage, currentPage) {
   if (itemPage === currentPage) return true;
@@ -99,7 +118,15 @@ function activeMatch(itemPage, currentPage) {
 export default function LeftNav({ mobileOpen = false, onCloseMobile }) {
   const { page, appUser, navigate } = useApp();
   const role = appUser?.role || 'sales';
-  const sections = sectionsForRole(role);
+
+  // Filter each section's items by the new permission catalogue, then drop
+  // sections that become empty. An officer and a head of the same department
+  // see the same SECTION layout, but only items they can actually open are
+  // rendered. This is purely visual — server-side requirePermission is the
+  // load-bearing gate.
+  const sections = sectionsForRole(role)
+    .map(section => ({ ...section, items: section.items.filter(it => canOpenPage(role, it.page)) }))
+    .filter(section => section.items.length > 0);
 
   const go = (target) => {
     navigate(target);

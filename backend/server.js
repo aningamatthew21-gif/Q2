@@ -28,6 +28,7 @@ const targetsRoutes = require('./routes/targets');
 const reportsRoutes = require('./routes/reports');
 const vendorRoutes = require('./routes/vendors');
 const purchaseRequisitionRoutes = require('./routes/purchaseRequisitions');
+const usersRoutes = require('./routes/users');
 const rfqRoutes = require('./routes/rfqs');
 const procurementSettingsRoutes = require('./routes/procurementSettings');
 const { auditMiddleware } = require('./middleware/auditMiddleware');
@@ -88,6 +89,7 @@ app.use('/api/vendors', vendorRoutes);
 app.use('/api/purchase-requisitions', purchaseRequisitionRoutes);
 app.use('/api/rfqs', rfqRoutes);
 app.use('/api/procurement-settings', procurementSettingsRoutes);
+app.use('/api/users', usersRoutes);
 
 // Auto-audit middleware: captures every POST/PUT/DELETE after response
 app.use(auditMiddleware);

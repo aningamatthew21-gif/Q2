@@ -4,7 +4,13 @@ const express = require('express');
 const crypto = require('crypto');
 const { execute, transaction } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
+const {
+  authMiddleware,
+  requireRole,
+  requirePermission,
+  sodCheckRunner
+} = require('../middleware/authMiddleware');
+const { can } = require('../../shared/permissions');
 const { emitToAll } = require('../utils/socketEmitter');
 
 const router = express.Router();
@@ -531,6 +537,62 @@ router.post('/', catchAsync(async (req, res) => {
 router.put('/:id', catchAsync(async (req, res) => {
   const { id } = req.params;
   const updates = req.body; // Cannot deep-update lineitems with this route.
+
+  // ── Authorization & SoD enforcement ──────────────────────────────────
+  // Status transitions are the load-bearing actions on this route — they
+  // determine who approves what. Plain field edits (signature, payment,
+  // balance) skip these gates because they're scoped by the page-level
+  // permission. For status changes we load the current invoice once and
+  // run both the permission check AND the matching SoD invariant.
+  if (updates.status !== undefined) {
+    const cur = await execute(
+      `SELECT STATUS, CREATED_BY, SALESPERSON_ID, APPROVED_BY, REJECTED_BY,
+              CUSTOMER_ACTION_AT, SUBMITTED_AT
+         FROM QA_INVOICES WHERE INVOICE_ID = :id`,
+      { id }
+    );
+    const row = cur.rows?.[0];
+    if (!row) return res.status(404).json({ success: false, error: 'Invoice not found' });
+
+    const prevStatus = row.STATUS;
+    const newStatus  = updates.status;
+    const entity     = {
+      createdBy:      row.CREATED_BY,
+      salesPersonId:  row.SALESPERSON_ID,
+      sentBy:         row.APPROVED_BY    // who sent it to the customer = last approver
+    };
+
+    // Sales-side approval: invoice is moving from Pending Approval → Approved.
+    if (newStatus === 'Approved' && prevStatus === 'Pending Approval') {
+      if (!can(req.user.role, 'invoice.approve.sales') && !can(req.user.role, 'invoice.approve.finance')) {
+        return res.status(403).json({ success: false, error: "You don't have permission to approve this invoice." });
+      }
+      const sodErr = sodCheckRunner('invoice.approve.sales')(req.user, entity);
+      if (sodErr) return res.status(403).json({ success: false, error: sodErr });
+    }
+    // Rejection of either side.
+    if (newStatus === 'Rejected' && prevStatus === 'Pending Approval') {
+      if (!can(req.user.role, 'invoice.reject.sales') && !can(req.user.role, 'invoice.reject.finance')) {
+        return res.status(403).json({ success: false, error: "You don't have permission to reject this invoice." });
+      }
+    }
+    // Customer-on-behalf action — the user marking accept can't be the same
+    // user who approved/sent the invoice. Customer Rejected has its own
+    // reject flow handled elsewhere, but the SoD shape is identical.
+    if (newStatus === 'Customer Accepted' || newStatus === 'Customer Rejected') {
+      if (!can(req.user.role, 'invoice.customer_action') && req.user.role !== 'admin' && req.user.role !== 'customer') {
+        return res.status(403).json({ success: false, error: "You don't have permission to mark this invoice on behalf of the customer." });
+      }
+      const sodErr = sodCheckRunner('invoice.customer_action')(req.user, entity);
+      if (sodErr) return res.status(403).json({ success: false, error: sodErr });
+    }
+    // Mark paid — finance head only.
+    if (newStatus === 'Paid' || newStatus === 'Partially Paid') {
+      if (!can(req.user.role, 'invoice.mark_paid')) {
+        return res.status(403).json({ success: false, error: "Only Finance Head can mark an invoice as paid." });
+      }
+    }
+  }
 
   const sqlSets = [];
   const binds = { id };

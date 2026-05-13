@@ -6,8 +6,11 @@ import api from '../api';
 // is still imported below as a fallback; once every page is verified on
 // AppShell we'll delete the v1 layout module entirely.
 import AppShell from '../components/v2/AppShell';
+import Forbidden from '../components/v2/Forbidden';
 // eslint-disable-next-line no-unused-vars
 import AppLayout from '../components/layout/AppLayout';
+// Page-level permission gate (shared with backend via shared/permissions.js)
+import { canOpenPage as _canOpenPageNew, PAGE_PERMISSIONS } from '../utils/permissions';
 
 // Import all page components
 import LoginScreen from '../pages/LoginScreen';
@@ -34,6 +37,7 @@ import RFQList from '../pages/RFQList';
 import RFQBuilder from '../pages/RFQBuilder';
 import RFQDetail from '../pages/RFQDetail';
 import ProcurementSettings from '../pages/ProcurementSettings';
+import UserManagement from '../pages/UserManagement';
 
 const AppContext = createContext();
 
@@ -92,9 +96,25 @@ const PAGE_ROLES = {
     rfqDetail:                ['procurement', 'controller', 'admin'],
 };
 
+// Page gate.
+//
+// The NEW permission catalogue (`shared/permissions.js` via PAGE_PERMISSIONS)
+// is the authoritative source — when a page is in it, that map alone decides.
+// The legacy `PAGE_ROLES` is only consulted for pages that haven't been
+// migrated yet (none should remain — kept defensively).
+//
+// Earlier this function AND-ed the two, which sounds conservative but
+// actually broke every tiered role: the legacy list contains
+// `['sales', 'controller', 'admin']` for `myInvoices`, so a logged-in
+// `sales_head` would fail the legacy check (their role string isn't in
+// the list) even though the new system grants `invoice.read.own` via
+// inheritance. Result: tiered roles were locked out of every page that
+// had a legacy entry.
 const canAccessPage = (role, page) => {
-    if (!PAGE_ROLES[page]) return true; // page not restricted
-    return PAGE_ROLES[page].includes(role);
+    if (page in PAGE_PERMISSIONS) return _canOpenPageNew(role, page);
+    const legacy = PAGE_ROLES[page];
+    if (legacy) return legacy.includes(role);
+    return true;   // page not restricted in either map
 };
 
 export const useApp = () => {
@@ -112,7 +132,7 @@ const VALID_PAGES = new Set([
     'inventory', 'customers', 'customerPortal', 'taxSettings', 'auditTrail',
     'pricingManagement', 'vendors', 'procurementDashboard', 'purchaseRequisitions',
     'purchaseRequisitionDetail', 'rfqList', 'rfqBuilder', 'rfqDetail', 'procurementSettings',
-    'mySignatures'
+    'mySignatures', 'userManagement'
 ]);
 
 // Read the page from the current URL ?page= param (if valid)
@@ -315,12 +335,15 @@ export const AppProvider = ({ children }) => {
             userEmail
         };
 
-        // Role-based access control — redirect to landing page if user lacks access
+        // Permission-based access control. The deny path used to silently
+        // redirect to the user's home dashboard — that hid bugs (a user
+        // clicking a nav item their role can't see just bounced) and was
+        // a poor UX. Now we render the v2 Forbidden screen which states
+        // the role + missing permission and lets the user choose to go
+        // back. Bookmarked URLs that point to a now-restricted page also
+        // get this visible, recoverable error rather than a quiet bounce.
         if (page !== 'login' && appUser && !canAccessPage(appUser.role, page)) {
-            const landing = roleToLandingPage(appUser.role);
-            // Silently redirect without mutating URL so the browser back button still works
-            setTimeout(() => navigate(landing), 0);
-            return null;
+            return <Forbidden page={page} requiredPermission={PAGE_PERMISSIONS[page]} />;
         }
 
         switch (page) {
@@ -372,6 +395,8 @@ export const AppProvider = ({ children }) => {
                 return <RFQDetail {...commonProps} pageContext={pageContext} />;
             case 'procurementSettings':
                 return <ProcurementSettings {...commonProps} />;
+            case 'userManagement':
+                return <UserManagement {...commonProps} />;
             default:
                 if (appUser) {
                     const landing = roleToLandingPage(appUser.role);

@@ -11,9 +11,24 @@ require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const { initPool, execute, closePool } = require('./db');
 
 const statements = [
-    // 1. Relax user role constraint
+    // 1. Relax user role constraint — widen column + accept tiered roles.
+    //    The CHECK list includes BOTH the legacy single-word roles
+    //    (`sales`/`controller`/`procurement`/`admin`) AND the eight new
+    //    tiered roles defined in shared/permissions.js (`finance_head`,
+    //    `sales_officer`, etc.). The auth middleware upgrades legacy
+    //    role strings to tiered roles at JWT decode time, so users keep
+    //    their day-one access until promoted explicitly. ORA-01451 is
+    //    ignored on MODIFY when the column is already VARCHAR2(50).
+    { sql: `ALTER TABLE QA_USERS MODIFY (USER_ROLE VARCHAR2(50))`, ignore: ['ORA-01451'] },
     { sql: `ALTER TABLE QA_USERS DROP CONSTRAINT CHK_USERS_ROLE`, ignore: ['ORA-02443'] },
-    { sql: `ALTER TABLE QA_USERS ADD CONSTRAINT CHK_USERS_ROLE CHECK (USER_ROLE IN ('sales','controller','procurement','admin'))`, ignore: ['ORA-02264'] },
+    { sql: `ALTER TABLE QA_USERS ADD CONSTRAINT CHK_USERS_ROLE CHECK (USER_ROLE IN (
+        'admin',
+        'finance_officer','finance_head',
+        'sales_officer','sales_head',
+        'procurement_officer','procurement_head',
+        'customer',
+        'sales','controller','procurement'
+    ))`, ignore: ['ORA-02264'] },
 
     // 2. Add columns to QA_INVOICES
     { sql: `ALTER TABLE QA_INVOICES ADD (SOURCING_STATUS VARCHAR2(20) DEFAULT 'NONE')`, ignore: ['ORA-01430'] },

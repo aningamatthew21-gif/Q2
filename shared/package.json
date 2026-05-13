@@ -1,0 +1,6 @@
+{
+  "name": "midsa-shared",
+  "private": true,
+  "type": "module",
+  "main": "permissions.js"
+}

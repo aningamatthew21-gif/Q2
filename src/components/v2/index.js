@@ -44,5 +44,9 @@ export { default as PdfViewer } from './PdfViewer';
 // Drag-and-drop file picker with thumbnails
 export { default as FileDropzone } from './FileDropzone';
 
+// Authorization
+export { default as Can, useCan } from './Can';
+export { default as Forbidden }   from './Forbidden';
+
 // Motion tokens (for ad-hoc animations elsewhere)
 export * from './motion';
