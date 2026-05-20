@@ -269,8 +269,8 @@ const QuotingModule = ({ navigateTo, userId }) => {
 
     const validateUserInput = (input) => {
         if (!input || input.trim().length === 0) return false;
-        if (input.length > 500) { alert("Message too long (max 500 chars)."); return false; }
-        if (/<script|onload|onerror/i.test(input)) { alert("Invalid input detected."); return false; }
+        if (input.length > 500) { setNotification({ type: 'error', message: 'Message too long (max 500 characters).' }); return false; }
+        if (/<script|onload|onerror/i.test(input)) { setNotification({ type: 'error', message: 'Invalid input detected.' }); return false; }
         return true;
     };
 
@@ -370,7 +370,7 @@ const QuotingModule = ({ navigateTo, userId }) => {
     const [customItem, setCustomItem] = useState({ name: '', description: '', quantity: 1 });
 
     const handleAddCustomItem = () => {
-        if (!customItem.name) return alert("Please enter an item name");
+        if (!customItem.name) { setNotification({ type: 'error', message: 'Please enter an item name.' }); return; }
 
         const newItem = {
             id: `SOURCED-${Date.now()}`,
@@ -388,12 +388,12 @@ const QuotingModule = ({ navigateTo, userId }) => {
     };
 
     const openPreview = () => {
-        if (quoteItems.length === 0) { alert("Add items to the quote first."); return; }
+        if (quoteItems.length === 0) { setNotification({ type: 'error', message: 'Add items to the quote first.' }); return; }
         // Validation check for customer
-        if (!selectedCustomer) { alert("Please select a customer before proceeding."); return; }
+        if (!selectedCustomer) { setNotification({ type: 'error', message: 'Please select a customer before proceeding.' }); return; }
         // Block USD quotes when no exchange rate is set — would save zero values to DB
         if (quoteCurrency === 'USD' && !fxRateGhsPerUsd) {
-            alert(`Cannot submit a USD quote — no exchange rate is set for ${fxMonthKey}.\n\nPlease go to Settings → Exchange Rates and add the GHS/USD rate for this month, or switch the quote back to GHS.`);
+            setNotification({ type: 'error', message: `Cannot submit a USD quote — no exchange rate is set for ${fxMonthKey}. Go to Settings → Exchange Rates and add the GHS/USD rate for this month, or switch the quote back to GHS.` });
             return;
         }
         let payload = { customer: selectedCustomer, items: quoteItems, subtotal: totals.subtotal, taxes: taxes, taxConfig: taxes, totals: totals, orderCharges: orderCharges, currency: quoteCurrency, date: new Date().toLocaleDateString(), dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString() };
@@ -491,9 +491,17 @@ const QuotingModule = ({ navigateTo, userId }) => {
                     </Button>
                 }
             />
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100vh-180px)]">
+                {/* Layout: two columns side-by-side; columns top-align so the
+                    catalog's fixed-height listbox doesn't stretch the right
+                    panel's natural height. Previously the wrapper used
+                    `h-[calc(100vh-180px)]` so the catalog filled the viewport,
+                    but on tall content / short viewports that pushed the
+                    "Current quote" totals far below the fold. Constraining
+                    the catalog to a fixed ~15-row listbox here keeps the
+                    totals on screen at any common resolution. */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
                     <div className="lg:col-span-1 flex flex-col">
-                        <div className="bg-white border border-n-200 rounded-card flex flex-col h-full overflow-hidden">
+                        <div className="bg-white border border-n-200 rounded-card flex flex-col overflow-hidden">
                             {/* Catalog header */}
                             <div className="px-4 py-3 border-b border-n-200">
                                 <div className="text-[13px] font-semibold text-n-800 flex items-center gap-2">
@@ -524,7 +532,11 @@ const QuotingModule = ({ navigateTo, userId }) => {
                                 >Add sourced / custom item</Button>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto border-t border-n-200">
+                            {/* Listbox: ~15 visible rows, scrolls internally
+                                no matter how many products exist. ~38px per
+                                row × 15 ≈ 570px; the sticky header keeps the
+                                column labels in view while scrolling. */}
+                            <div className="border-t border-n-200 overflow-y-auto" style={{ maxHeight: '570px' }}>
                                 <table className="w-full text-[13px]">
                                     <thead className="bg-n-50 sticky top-0 z-10">
                                         <tr>
@@ -558,7 +570,7 @@ const QuotingModule = ({ navigateTo, userId }) => {
                             </div>
                         </div>
                     </div>
-                    <div className="lg:col-span-2 bg-white border border-n-200 rounded-card h-full flex flex-col overflow-hidden">
+                    <div className="lg:col-span-2 bg-white border border-n-200 rounded-card flex flex-col overflow-hidden">
                         <div className="px-4 py-3 border-b border-n-200">
                             <div className="text-[13px] font-semibold text-n-800">Current quote</div>
                             <div className="text-xs text-n-500 mt-0.5">Select a customer, then add items from the catalog</div>
@@ -593,7 +605,10 @@ const QuotingModule = ({ navigateTo, userId }) => {
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-4 pt-3 min-h-0">
+                        {/* Items on the quote — its own internal scroller so a
+                            long line-item list doesn't push the totals/CTA
+                            below the fold either. */}
+                        <div className="px-4 pt-3 overflow-y-auto min-h-0" style={{ maxHeight: '320px' }}>
                             {quoteItems.length > 0 ? (
                                 <div className="border border-n-200 rounded-card overflow-hidden">
                                     <table className="w-full text-[13px]">

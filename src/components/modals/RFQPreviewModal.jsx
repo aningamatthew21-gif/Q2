@@ -165,7 +165,9 @@ export default function RFQPreviewModal({ open, onClose, rfqData, onConfirmSend,
         const vendor = entry.vendor;
         const email = vendor.contactEmail;
         if (!email) {
-            alert(`No email address on file for ${vendor.vendorName || vendor.name || 'this vendor'}.`);
+            // Reuse the existing in-modal `error` banner instead of a
+            // browser alert so the user stays in the Fluent 2 surface.
+            setError(`No email address on file for ${vendor.vendorName || vendor.name || 'this vendor'}.`);
             return;
         }
         const companyName = rfqData?.companySettings?.locationAddress?.companyName || 'Margins ID Systems Applications Ltd.';

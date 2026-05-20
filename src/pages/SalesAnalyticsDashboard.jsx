@@ -15,6 +15,7 @@ import { staggerContainer } from '../components/v2/motion';
 import ReportModal from '../components/ReportModal';
 import { formatCurrency } from '../utils/formatting';
 import { useRealtimeInvoices } from '../hooks/useRealtimeInvoices';
+import { isSales, isOfficer } from '../utils/roles';
 
 /**
  * SalesAnalyticsDashboard — Fluent 2 redesign (v2).
@@ -25,10 +26,19 @@ import { useRealtimeInvoices } from '../hooks/useRealtimeInvoices';
  * data list. Recharts is still the chart engine; only its theme changed
  * (Fluent palette via CHART_COLORS / CHART_SERIES).
  */
-const SalesAnalyticsDashboard = ({ navigateTo, userId, userEmail }) => {
+const SalesAnalyticsDashboard = ({ navigateTo, userId, userEmail, currentUser }) => {
   const [openReport, setOpenReport] = useState(false);
   const username = userEmail ? userEmail.split('@')[0] : 'User';
-  const { data: invoices, loading: isLoading, error: fetchError } = useRealtimeInvoices(userId);
+
+  // Data scope. A sales OFFICER sees their own pipeline (createdBy = me).
+  // Everyone else who can reach this dashboard — a sales head, and the
+  // finance desk / admin who legitimately need cross-department
+  // visibility — sees ALL invoices. Without this a finance head opened
+  // the sales dashboard and every figure read zero, because the hook was
+  // unconditionally filtering by `createdBy = <finance head's id>`.
+  const scopeToOwn = isSales(currentUser?.role) && isOfficer(currentUser?.role);
+  const { data: invoices, loading: isLoading, error: fetchError } =
+    useRealtimeInvoices(scopeToOwn ? userId : null);
 
   const handleRefresh = () => { console.log('Real-time updates active - refresh not needed'); };
 

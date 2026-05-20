@@ -253,7 +253,7 @@ const ControllerAnalyticsDashboard = ({ navigateTo, userEmail, currentUser }) =>
                       key={inv.id}
                       variants={listRow}
                       className="border-b border-n-100 hover:bg-n-50 cursor-pointer transition-colors"
-                      onClick={() => navigateTo('invoiceEditor', { invoiceId: inv.id })}
+                      onClick={() => navigateTo('invoiceEditor', { invoiceId: inv.id, returnTo: 'controllerDashboard' })}
                     >
                       <td className="px-4 py-2 font-mono-num text-[12.5px]">{inv.approvedInvoiceId || inv.id}</td>
                       <td className="px-4 py-2">{inv.customerName}</td>

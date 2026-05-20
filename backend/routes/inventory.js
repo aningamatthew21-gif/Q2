@@ -1,9 +1,9 @@
 'use strict';
 
 const express = require('express');
-const { execute } = require('../db');
+const { execute, transaction } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, requirePermission } = require('../middleware/authMiddleware');
 const { emitToAll } = require('../utils/socketEmitter');
 
 const router = express.Router();
@@ -13,6 +13,12 @@ router.use(authMiddleware);
  * GET /api/inventory
  */
 router.get('/', catchAsync(async (req, res) => {
+  // Inventory listing is internal-only. Customers must not enumerate the
+  // catalogue. Internal staff (anyone with `inventory.read`) can fetch.
+  if (req.user.role === 'customer') {
+    return res.status(403).json({ success: false, error: "Access denied." });
+  }
+
   const result = await execute('SELECT * FROM QA_INVENTORY ORDER BY ITEM_NAME ASC');
 
   const items = (result.rows || []).map(row => ({
@@ -98,7 +104,7 @@ router.get('/:id', catchAsync(async (req, res) => {
 /**
  * POST /api/inventory
  */
-router.post('/', catchAsync(async (req, res) => {
+router.post('/', requirePermission('inventory.write'), catchAsync(async (req, res) => {
   const item = req.body;
   if (!item.id || !item.name) {
     return res.status(400).json({ success: false, error: 'id and name are required' });
@@ -153,12 +159,127 @@ router.post('/', catchAsync(async (req, res) => {
 }));
 
 /**
+ * POST /api/inventory/bulk
+ *
+ * Bulk upsert for CSV imports. Accepts { items: [...] } and MERGEs every
+ * row inside a SINGLE transaction on ONE pooled connection, then emits
+ * `inventory:updated` exactly ONCE for the whole batch.
+ *
+ * This replaces the old client-side pattern of firing one POST per row.
+ * For a 1000-line import that meant 1000 HTTP round-trips AND 1000 socket
+ * broadcasts — and every connected client refetched + re-rendered the
+ * entire (growing) inventory table on each one. That O(n²) cascade is
+ * what lagged the app and eventually blanked the screen.
+ */
+router.post('/bulk', requirePermission('inventory.write'), catchAsync(async (req, res) => {
+  const items = Array.isArray(req.body && req.body.items) ? req.body.items : null;
+  if (!items || items.length === 0) {
+    return res.status(400).json({ success: false, error: 'items array is required' });
+  }
+  if (items.length > 5000) {
+    return res.status(413).json({
+      success: false,
+      error: 'Too many items in one request (max 5000). Split into smaller batches.'
+    });
+  }
+
+  // Upsert: update when the SKU already exists, insert otherwise.
+  const MERGE_SQL = `
+    MERGE INTO QA_INVENTORY t
+    USING (SELECT :sku AS SKU FROM DUAL) s
+    ON (t.SKU = s.SKU)
+    WHEN MATCHED THEN UPDATE SET
+      ITEM_NAME = :name, VENDOR = :vendor, STOCK = :stock, PRICE = :price,
+      RESTOCK_LIMIT = :restock, CURRENCY = :curr, ITEM_TYPE = :itype,
+      UNIT_COST = :ucost, WEIGHT_KG = :wkg,
+      DIM_LENGTH = :dl, DIM_WIDTH = :dw, DIM_HEIGHT = :dh,
+      FREIGHT_PER_UNIT = :fpu, DUTY_PER_UNIT = :dpu, INSURANCE_PER_UNIT = :ipu,
+      PACKAGING_PER_UNIT = :ppu, OTHER_PER_UNIT = :opu, HANDLING_PER_UNIT = :hpu,
+      TRANSFER_ADMIN_PER_UNIT = :tapu, MARKUP_OVERRIDE = :mo, PRICING_TIER = :pt,
+      UPDATED_AT = SYSTIMESTAMP, UPDATED_BY = :uby
+    WHEN NOT MATCHED THEN INSERT (
+      SKU, ITEM_NAME, VENDOR, STOCK, PRICE, RESTOCK_LIMIT, CURRENCY, ITEM_TYPE,
+      UNIT_COST, WEIGHT_KG, DIM_LENGTH, DIM_WIDTH, DIM_HEIGHT,
+      FREIGHT_PER_UNIT, DUTY_PER_UNIT, INSURANCE_PER_UNIT, PACKAGING_PER_UNIT, OTHER_PER_UNIT,
+      HANDLING_PER_UNIT, TRANSFER_ADMIN_PER_UNIT, MARKUP_OVERRIDE, PRICING_TIER, UPDATED_BY
+    ) VALUES (
+      :sku, :name, :vendor, :stock, :price, :restock, :curr, :itype,
+      :ucost, :wkg, :dl, :dw, :dh,
+      :fpu, :dpu, :ipu, :ppu, :opu,
+      :hpu, :tapu, :mo, :pt, :uby
+    )
+  `;
+
+  const email = req.user.email;
+  let processed = 0;
+  const errors = [];
+
+  // One connection, one commit. autoCommit:false on each statement so the
+  // transaction() wrapper performs a single commit at the end.
+  await transaction(async (conn) => {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item || !item.id || !item.name) {
+        errors.push({ index: i, error: 'missing id or name' });
+        continue;
+      }
+      const dim = item.dimensions || {};
+      const cost = item.costComponents || {};
+      const mo = item.markupOverridePercent;
+      try {
+        await conn.execute(MERGE_SQL, {
+          sku:     String(item.id),
+          name:    item.name,
+          vendor:  item.vendor || null,
+          stock:   Number(item.stock) || 0,
+          price:   Number(item.price) || 0,
+          restock: Number(item.restockLimit) || 0,
+          curr:    item.currency || 'GHS',
+          itype:   item.itemType || 'Hardware',
+          ucost:   Number(item.unitCost) || 0,
+          wkg:     Number(item.weightKg) || 0,
+          dl:      Number(dim.length) || 0,
+          dw:      Number(dim.width) || 0,
+          dh:      Number(dim.height) || 0,
+          fpu:     Number(cost.inboundFreightPerUnit) || 0,
+          dpu:     Number(cost.dutyPerUnit) || 0,
+          ipu:     Number(cost.insurancePerUnit) || 0,
+          ppu:     Number(cost.packagingPerUnit) || 0,
+          opu:     Number(cost.otherPerUnit) || 0,
+          hpu:     Number(cost.handlingPerUnit) || 0,
+          tapu:    Number(cost.transferAdminPerUnit) || 0,
+          mo:      (mo === null || mo === undefined || mo === '') ? null : Number(mo),
+          pt:      item.pricingTier || 'standard',
+          uby:     email
+        }, { autoCommit: false });
+        processed++;
+      } catch (err) {
+        errors.push({ index: i, id: item.id, error: err.message });
+      }
+    }
+  });
+
+  // ONE broadcast for the whole batch — not one per row.
+  emitToAll('inventory:updated');
+
+  res.json({
+    success: true,
+    data: {
+      processed,
+      failed: errors.length,
+      total: items.length,
+      errors: errors.slice(0, 50)
+    }
+  });
+}));
+
+/**
  * PUT /api/inventory/:id
  */
-router.put('/:id', catchAsync(async (req, res) => {
+router.put('/:id', requirePermission('inventory.write'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const item = req.body;
-  
+
   const dim = item.dimensions || {};
   const cost = item.costComponents || {};
 
@@ -210,7 +331,7 @@ router.put('/:id', catchAsync(async (req, res) => {
 /**
  * DELETE /api/inventory/:id
  */
-router.delete('/:id', catchAsync(async (req, res) => {
+router.delete('/:id', requirePermission('inventory.write'), catchAsync(async (req, res) => {
   const { id } = req.params;
   await execute('DELETE FROM QA_INVENTORY WHERE SKU = :id', { id });
   emitToAll('inventory:updated');

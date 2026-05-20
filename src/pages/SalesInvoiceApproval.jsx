@@ -8,18 +8,21 @@ import { logActivity } from '../utils/logger';
 import { getInvoiceDate, generatePermanentId, getNextSequenceNumber } from '../utils/helpers';
 import { useApp } from '../context/AppContext';
 import { usePrompt } from '../components/v2/PromptDialog';
+import { can } from '../utils/permissions';
 
 const SalesInvoiceApproval = ({ navigateTo, userId }) => {
     const { askText } = usePrompt();
     const { userEmail, appUser } = useApp();
     const username = userEmail ? userEmail.split('@')[0] : userId;
 
-    // CRITICAL: Determine Role
-    // Dual-path approval page. Controllers AND admins get the full finance experience
-    // (pricing edits, tax, quantity, view-of-Pending-Pricing queue). Sales users get
-    // the lean approval view — they can approve/reject but not re-price, since sales
-    // has no pricing authority. This flag drives every conditional render below.
-    const isController = appUser?.role === 'controller' || appUser?.role === 'admin';
+    // CRITICAL: Determine Role (now permission-driven)
+    // Dual-path approval page. Finance users (controller / finance_head / finance_officer /
+    // admin) get the full finance experience — pricing edits, tax, quantity, view of the
+    // Pending-Pricing queue. Sales users get the lean approval view (approve/reject only,
+    // no pricing authority). Previously this used `appUser?.role === 'controller'` which
+    // silently broke for every new tiered role (`finance_head`, `finance_officer`). The
+    // permission catalogue is the single source of truth now.
+    const isController = can(appUser?.role, 'invoice.edit.pricing');
 
     // Real-time data fetching
     const [invoices, setInvoices] = useState([]);
@@ -87,15 +90,31 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
 
     // Filter Logic
     const filteredInvoices = useMemo(() => {
+        const me = (appUser?.email || '').toLowerCase();
         return invoices.filter(invoice => {
             const date = getInvoiceDate(invoice);
             const year = date.getFullYear().toString();
             const month = (date.getMonth() + 1).toString().padStart(2, '0');
             const yearMatch = selectedYear === 'All' || year === selectedYear;
             const monthMatch = selectedMonth === 'All' || month === selectedMonth;
+
+            // SoD HYGIENE — hide invoices the current user CANNOT approve
+            // because they created them or are named as the salesperson.
+            // The server's invoice.approve.sales / .finance SoD rule would
+            // 403 these on click anyway; surfacing them in the queue just
+            // teases the user with rows that can never succeed. Filter
+            // ONLY for the "Pending Approval" status (the one bound by
+            // SoD); Pending Pricing rows have no approver-vs-creator
+            // restriction so the finance pricing user can still see those.
+            if (me && invoice.status === 'Pending Approval') {
+                const createdBy = String(invoice.createdBy || '').toLowerCase();
+                const salesPerson = String(invoice.salesPersonId || '').toLowerCase();
+                if (me === createdBy || me === salesPerson) return false;
+            }
+
             return yearMatch && monthMatch;
         });
-    }, [invoices, selectedYear, selectedMonth]);
+    }, [invoices, selectedYear, selectedMonth, appUser]);
 
     const { years, months } = useMemo(() => {
         const uniqueYears = new Set();
@@ -131,7 +150,18 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
                 return;
             }
 
-            const updatePayload = { status: newStatus };
+            // Pull the latest cached row so we can include its rowVersion in
+            // the PUT — backend uses this for optimistic-concurrency control
+            // and returns 409 if someone else changed the invoice in the
+            // meantime. Without it the server logs a "concurrency check
+            // skipped" warning and falls back to last-write-wins.
+            const invoiceForVersion = invoices.find(inv => inv.id === invoiceId);
+            const updatePayload = {
+                status: newStatus,
+                ...(invoiceForVersion?.rowVersion !== undefined
+                    ? { rowVersion: invoiceForVersion.rowVersion }
+                    : {})
+            };
 
             if (newStatus === 'Approved' && selectedSignature) {
                 updatePayload.signatureData = JSON.stringify({
@@ -153,23 +183,14 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
                     // Continue without permanent ID rather than blocking approval
                 }
 
-                // Adjust Stock for each line item
-                const invoice = invoices.find(inv => inv.id === invoiceId);
-                if (invoice) {
-                    const itemsArray = invoice.lineItems || invoice.items || [];
-                    for (const item of itemsArray) {
-                        try {
-                            const invRes = await api.get(`/inventory/${item.id}`);
-                            if (invRes.success && invRes.data) {
-                                const currentStock = invRes.data.stock;
-                                const newStock = currentStock - (item.quantity || 0);
-                                await api.put(`/inventory/${item.id}`, { stock: newStock });
-                            }
-                        } catch (invErr) {
-                            console.warn(`Stock adjustment failed for ${item.id}`, invErr);
-                        }
-                    }
-                }
+                // STOCK DECREMENT IS NOW SERVER-SIDE.
+                // The backend PUT /invoices/:id atomically decrements every
+                // line item's inventory inside the same transaction as the
+                // status change. The old client-side loop here was a lost-
+                // update race — two approvers hitting the same SKU could
+                // both succeed with stale snapshots, silently overselling.
+                // If stock is insufficient the PUT below returns 409 with
+                // code 'INSUFFICIENT_STOCK', already handled by the catch.
             } else if (newStatus === 'Rejected') {
                 const reason = await askText({
                     title:        'Reject this invoice',
@@ -205,9 +226,13 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
 
         } catch (error) {
             console.error('❌ [ERROR] SalesInvoiceApproval: handleApproval failed:', error);
+            // Surface the SERVER'S actual reason (SoD violation, sourcing
+            // gate, insufficient stock, version mismatch, permission) rather
+            // than axios's generic "Request failed with status code 409".
+            const serverMsg = error?.response?.data?.error || error?.message || 'Unknown error';
             setNotification({
                 type: 'error',
-                message: `Failed to ${newStatus.toLowerCase()} invoice. Error: ${error.message}`
+                message: `Failed to ${newStatus.toLowerCase()} invoice: ${serverMsg}`
             });
         }
     };
@@ -346,7 +371,7 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
                                                         {/* CONTROLLER ACTION: PRICING */}
                                                         {isController && invoice.status === 'Pending Pricing' && (
                                                             <button
-                                                                onClick={() => navigateTo('invoiceEditor', { invoiceId: invoice.id })}
+                                                                onClick={() => navigateTo('invoiceEditor', { invoiceId: invoice.id, returnTo: 'salesInvoiceApproval' })}
                                                                 className="text-purple-600 hover:text-purple-900 border border-purple-200 px-3 py-1 rounded bg-purple-50"
                                                             >
                                                                 <Icon id="edit" className="mr-1 inline" /> Price Item

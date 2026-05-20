@@ -3,7 +3,7 @@
 const express = require('express');
 const { execute } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
+const { authMiddleware, requirePermission } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -14,7 +14,7 @@ router.use(authMiddleware);
  * Restricted to procurement/controller/admin so sales users can't see
  * approval thresholds and game RFQ structure.
  */
-router.get('/', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.get('/', requirePermission('procurement.settings.read'), catchAsync(async (req, res) => {
   const result = await execute('SELECT SETTING_KEY, SETTING_VAL FROM QA_PROCUREMENT_SETTINGS ORDER BY SETTING_KEY');
   const settings = {};
   for (const row of (result.rows || [])) {
@@ -30,7 +30,7 @@ router.get('/', requireRole('procurement', 'controller', 'admin'), catchAsync(as
  * Body: { key: value, ... }  e.g. { highValueThreshold: '50000', minVendorsPerRFQ: '3' }
  * Only controller/admin may edit.
  */
-router.put('/', requireRole('controller', 'admin'), catchAsync(async (req, res) => {
+router.put('/', requirePermission('procurement.settings.edit'), catchAsync(async (req, res) => {
   const updates = req.body || {};
   for (const [key, value] of Object.entries(updates)) {
     await execute(

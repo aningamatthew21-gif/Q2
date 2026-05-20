@@ -3,7 +3,7 @@
 const express = require('express');
 const { execute } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, requirePermission } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -11,7 +11,7 @@ router.use(authMiddleware);
 /**
  * GET /api/targets/:year
  */
-router.get('/:year', catchAsync(async (req, res) => {
+router.get('/:year', requirePermission('targets.read'), catchAsync(async (req, res) => {
   const { year } = req.params;
   const result = await execute('SELECT * FROM QA_REVENUE_TARGETS WHERE TARGET_YEAR = :yr', { yr: year });
 
@@ -43,7 +43,7 @@ router.get('/:year', catchAsync(async (req, res) => {
  * POST /api/targets/:year
  * Upserts targets for the entire year
  */
-router.post('/:year', catchAsync(async (req, res) => {
+router.post('/:year', requirePermission('targets.edit'), catchAsync(async (req, res) => {
   const { year } = req.params;
   const { monthlyTargets, annualTarget } = req.body;
 

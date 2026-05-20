@@ -4,7 +4,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { execute, transaction, lobToString } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
+const { authMiddleware, requireRole, requirePermission } = require('../middleware/authMiddleware');
 const { emitToAll } = require('../utils/socketEmitter');
 
 const router = express.Router();
@@ -121,7 +121,7 @@ router.get('/exchangeRates', catchAsync(async (req, res) => {
   res.json({ success: true, data: { rates } });
 }));
 
-router.post('/exchangeRates', catchAsync(async (req, res) => {
+router.post('/exchangeRates', requirePermission('fx.edit'), catchAsync(async (req, res) => {
   const { rates } = req.body; // Full array sent by client
 
   await transaction(async (conn) => {
@@ -165,7 +165,7 @@ router.get('/signatures', catchAsync(async (req, res) => {
   res.json({ success: true, data: { signatures } });
 }));
 
-router.post('/signatures', catchAsync(async (req, res) => {
+router.post('/signatures', requirePermission('signature.manage'), catchAsync(async (req, res) => {
   const { signatures } = req.body;
 
   await transaction(async (conn) => {
@@ -272,7 +272,7 @@ router.get('/pricing', catchAsync(async (req, res) => {
   });
 }));
 
-router.post('/pricing', catchAsync(async (req, res) => {
+router.post('/pricing', requirePermission('pricing.write'), catchAsync(async (req, res) => {
   const p = req.body;
 
   await execute(`
@@ -326,7 +326,7 @@ router.post('/pricing', catchAsync(async (req, res) => {
 // ==========================================
 // INVOICE COUNTER (SEQUENCE)
 // ==========================================
-router.post('/invoiceCounter', catchAsync(async (req, res) => {
+router.post('/invoiceCounter', requirePermission('system.invoice_counter.edit'), catchAsync(async (req, res) => {
   await transaction(async (conn) => {
     // 1. Increment counter
     await conn.execute(`

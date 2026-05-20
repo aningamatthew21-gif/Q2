@@ -13,6 +13,7 @@ const {
 const { emitToAll } = require('../utils/socketEmitter');
 const { sendRfqEmail } = require('../utils/email');
 const { calculateVendorScores, DEFAULT_WEIGHTS } = require('../utils/vendorScoring');
+const { notify } = require('../services/notificationService');
 
 /**
  * Recompute taxes from the stored TAX_BREAKDOWN CLOB rates rather than using
@@ -338,7 +339,7 @@ router.get('/:id/recommendation', catchAsync(async (req, res) => {
  * POST /api/rfqs
  * Create new RFQ. Body: { title, prIds[], vendorIds[], submissionDeadline, deliveryDeadline, notes, currency }
  */
-router.post('/', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/', requirePermission('rfq.create'), catchAsync(async (req, res) => {
   const { title, prIds = [], vendorIds = [], submissionDeadline, deliveryDeadline, notes, currency } = req.body || {};
 
   if (!prIds.length) {
@@ -418,7 +419,7 @@ router.post('/', requireRole('procurement', 'controller', 'admin'), catchAsync(a
  * POST /api/rfqs/:id/send
  * Email all vendors for this RFQ. Sets status SENT.
  */
-router.post('/:id/send', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/:id/send', requirePermission('rfq.send'), catchAsync(async (req, res) => {
   const { id } = req.params;
 
   // Build all the data needed to email
@@ -525,7 +526,7 @@ router.post('/:id/send', requireRole('procurement', 'controller', 'admin'), catc
  * Manually log a vendor response (one row per PR per vendor)
  * Body: { vendorId, prId, unitCost, quantity, leadTimeDays, freight, deliveryTerms, paymentTerms, validityDays, currency, notes, receivedDate }
  */
-router.post('/:id/responses', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/:id/responses', requirePermission('rfq.response.log'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const r = req.body || {};
   if (!r.vendorId || !r.prId) {
@@ -791,6 +792,38 @@ router.post('/:id/award', requireRole('procurement', 'controller', 'admin'), cat
   emitToAll('rfq:updated');
   emitToAll('pr:updated');
   emitToAll('invoices:updated');
+
+  // Sourcing just completed — tell finance and the sales owners of the
+  // affected invoices that the real costs are now reflected on their quotes.
+  try {
+    const invoiceIds = [...new Set(pushbackResults.map(p => p.invoiceId).filter(Boolean))];
+    if (invoiceIds.length > 0) {
+      const inClause = invoiceIds.map((_, i) => `:id${i}`).join(',');
+      const idBinds = {};
+      invoiceIds.forEach((iid, i) => { idBinds[`id${i}`] = iid; });
+      const invRes = await execute(
+        `SELECT INVOICE_ID, CREATED_BY, SALESPERSON_ID, CUSTOMER_NAME FROM QA_INVOICES WHERE INVOICE_ID IN (${inClause})`,
+        idBinds
+      );
+      for (const inv of (invRes.rows || [])) {
+        notify({
+          to: {
+            users: [inv.CREATED_BY, inv.SALESPERSON_ID],
+            roles: ['finance_head'],
+            excludeActor: true
+          },
+          actor: req.user.email,
+          type: 'rfq.awarded', category: 'procurement', severity: 'success',
+          title: 'Sourcing complete — quote re-costed',
+          body: `Procurement awarded sourcing for ${inv.INVOICE_ID} (${inv.CUSTOMER_NAME || 'a customer'}). The final supplier costs are now on the quote.`,
+          entityType: 'invoice', entityId: inv.INVOICE_ID,
+          linkPage: 'invoiceEditor', linkContext: { invoiceId: inv.INVOICE_ID, returnTo: 'invoices' },
+          groupKey: `invoice:${inv.INVOICE_ID}:sourced`
+        });
+      }
+    }
+  } catch (e) { console.error('[rfqs] award notify failed:', e.message); }
+
   res.json({ success: true, totalAward, pushbackResults, status: threshold > 0 && totalAward > threshold && !isControllerOrAdmin ? 'PENDING_APPROVAL' : 'AWARDED' });
 }));
 
@@ -802,7 +835,7 @@ router.post('/:id/award', requireRole('procurement', 'controller', 'admin'), cat
  *
  * Body: { vendorId, responseIds[], score, reason, allowPartial }
  */
-router.post('/:id/recommend', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/:id/recommend', requirePermission('rfq.recommend'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const {
     vendorId,
@@ -898,6 +931,23 @@ router.post('/:id/recommend', requireRole('procurement', 'controller', 'admin'),
   });
 
   emitToAll('rfq:updated');
+
+  // Tell the procurement head a recommendation is waiting for their award decision.
+  try {
+    const numRes = await execute(`SELECT RFQ_NUMBER FROM QA_RFQS WHERE RFQ_ID = :id`, { id });
+    const rfqNumber = numRes.rows?.[0]?.RFQ_NUMBER || id;
+    notify({
+      to: { roles: ['procurement_head'], excludeActor: true },
+      actor: req.user.email,
+      type: 'rfq.recommended', category: 'procurement', severity: 'warning',
+      title: 'RFQ recommendation awaiting your approval',
+      body: `${req.user.email} recommended a vendor for ${rfqNumber} (total ${Number(totalAmount || 0).toLocaleString()}). It needs your award approval.`,
+      entityType: 'rfq', entityId: id,
+      linkPage: 'rfqDetail', linkContext: { rfqId: id },
+      groupKey: `rfq:${id}:recommended`
+    });
+  } catch (e) { console.error('[rfqs] recommend notify failed:', e.message); }
+
   res.json({ success: true, totalAmount, status: 'PENDING_APPROVAL' });
 }));
 
@@ -1228,6 +1278,21 @@ router.post('/:id/approve', requirePermission('rfq.approve.award'), catchAsync(a
   emitToAll('rfq:updated');
   emitToAll('pr:updated');
   emitToAll('invoices:updated');
+
+  // Tell the officer who recommended this vendor that their recommendation
+  // was approved and the RFQ is now awarded.
+  if (rfqRow.RECOMMENDED_BY) {
+    notify({
+      to: { users: [rfqRow.RECOMMENDED_BY], excludeActor: true },
+      actor: req.user.email,
+      type: 'rfq.approved', category: 'procurement', severity: 'success',
+      title: 'Your RFQ recommendation was approved',
+      body: `${req.user.email} approved your vendor recommendation for ${rfqRow.RFQ_NUMBER || id}. The RFQ is now awarded.`,
+      entityType: 'rfq', entityId: id,
+      linkPage: 'rfqDetail', linkContext: { rfqId: id }
+    });
+  }
+
   res.json({ success: true, totalAward, pushbackResults, reapprovalsTriggered });
 }));
 
@@ -1244,7 +1309,7 @@ router.post('/:id/reject', requireRole('procurement', 'admin'), catchAsync(async
   // PENDING_APPROVAL" (409) before the UPDATE, so the client gets honest feedback
   // instead of a silent success. Previously a no-op UPDATE returned 200.
   const existing = await execute(
-    `SELECT STATUS FROM QA_RFQS WHERE RFQ_ID = :id`,
+    `SELECT STATUS, RECOMMENDED_BY, RFQ_NUMBER FROM QA_RFQS WHERE RFQ_ID = :id`,
     { id }
   );
   if (!existing.rows?.[0]) {
@@ -1280,6 +1345,22 @@ router.post('/:id/reject', requireRole('procurement', 'admin'), catchAsync(async
   });
 
   emitToAll('rfq:updated');
+
+  // Tell the recommending officer their recommendation was sent back.
+  const recBy = existing.rows[0].RECOMMENDED_BY;
+  if (recBy) {
+    const reasonText = reason ? ` Reason: "${String(reason).slice(0, 300)}"` : '';
+    notify({
+      to: { users: [recBy], excludeActor: true },
+      actor: req.user.email,
+      type: 'rfq.rejected', category: 'procurement', severity: 'warning',
+      title: 'RFQ recommendation sent back',
+      body: `${req.user.email} rejected your vendor recommendation for ${existing.rows[0].RFQ_NUMBER || id}. It's back in RECEIVING for another look.${reasonText}`,
+      entityType: 'rfq', entityId: id,
+      linkPage: 'rfqDetail', linkContext: { rfqId: id }
+    });
+  }
+
   res.json({ success: true });
 }));
 
@@ -1290,7 +1371,7 @@ router.post('/:id/reject', requireRole('procurement', 'admin'), catchAsync(async
  * automatic threshold fires. Body: { reason?: string, escalatedTo?: string }.
  * No-op if the RFQ is already escalated.
  */
-router.post('/:id/escalate', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/:id/escalate', requirePermission('rfq.escalate'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { reason, escalatedTo } = req.body || {};
 

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import api from '../api';
 import Icon from '../components/common/Icon';
 import PageHeader from '../components/common/PageHeader';
@@ -6,6 +6,7 @@ import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import ItemModal from '../components/modals/ItemModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
+import ImportProgressModal from '../components/modals/ImportProgressModal';
 import { logActivity } from '../utils/logger';
 import { formatCurrency } from '../utils/formatting';
 import { invalidateCache } from '../utils/cache';
@@ -20,6 +21,10 @@ const InventoryManagement = ({ navigateTo, userId }) => {
     const [editingItem, setEditingItem] = useState(null);
     const [deletingItemId, setDeletingItemId] = useState(null);
     const [pendingImport, setPendingImport] = useState(null);
+    // Live state for the blocking import-progress modal. `null` when no
+    // import is running; an object { processed, total, failed, done, error }
+    // while one is in flight or has just finished.
+    const [importProgress, setImportProgress] = useState(null);
     const [notification, setNotification] = useState(null);
     const fileInputRef = useRef(null);
     const { data: inventory, loading: inventoryLoading } = useRealtimeInventory();
@@ -113,27 +118,50 @@ const InventoryManagement = ({ navigateTo, userId }) => {
 
     const handleConfirmImport = async () => {
         if (!pendingImport) return;
+        const items = pendingImport;
+        const total = items.length;
+        // Send the import in chunks to the bulk endpoint. Each chunk is ONE
+        // HTTP request that MERGEs every row server-side and broadcasts a
+        // single `inventory:updated`. The old code fired one POST per row —
+        // 1000 rows meant 1000 requests + 1000 socket events, each forcing
+        // every client to refetch and re-render the whole growing table.
+        const CHUNK = 200;
+
+        // Swap the confirmation dialog for the BLOCKING progress modal
+        // immediately. The instant the import starts, the "Update & Add"
+        // button is gone from the screen — so it can't be clicked again,
+        // and Cancel is no longer available either. That double-click on a
+        // still-running import was exactly the double-data-entry the user
+        // hit. The progress modal then shows a live spinner + bar + count.
+        setPendingImport(null);
+        setImportProgress({ processed: 0, total, failed: 0, done: false, error: null });
+
+        let attempted = 0;
+        let failed = 0;
         try {
-            let totalProcessed = 0;
-            for (const item of pendingImport) {
-                // Try POST first
-                await api.post('/inventory', item).catch(err => {
-                    // Failover to PUT if exists
-                    return api.put(`/inventory/${item.id}`, item);
-                });
-                totalProcessed++;
-                if (totalProcessed % 20 === 0) {
-                    setNotification({ type: 'info', message: `Importing... ${totalProcessed}/${pendingImport.length} items processed` });
+            for (let i = 0; i < total; i += CHUNK) {
+                const batch = items.slice(i, i + CHUNK);
+                try {
+                    const res = await api.post('/inventory/bulk', { items: batch });
+                    failed += (res && res.success) ? (res.data?.failed || 0) : batch.length;
+                } catch (batchErr) {
+                    // One batch failed (network blip / server error) — count
+                    // the rows as failed but keep going so the rest still load.
+                    failed += batch.length;
+                    console.warn('[Inventory import] batch failed:', batchErr?.message);
                 }
+                attempted += batch.length;
+                // Live progress — the modal re-renders with the new counts.
+                setImportProgress(p => p && ({ ...p, processed: attempted, failed }));
             }
 
-            await logActivity(username, 'Imported Inventory', `Bulk import: ${pendingImport.length} items`, { category: 'inventory' });
+            await logActivity(username, 'Imported Inventory', `Bulk import: ${total} items`, { category: 'inventory' });
             invalidateCache('inventory');
-            setPendingImport(null);
-            setNotification({ type: 'success', message: `Successfully imported ${pendingImport.length} items!` });
+            setImportProgress(p => p && ({ ...p, processed: total, failed, done: true }));
         } catch (error) {
             console.error('Import error:', error);
-            setNotification({ type: 'error', message: `Import failed: ${error.message}` });
+            const msg = error?.response?.data?.error || error?.message || 'Unknown error';
+            setImportProgress(p => p && ({ ...p, processed: attempted, failed, done: true, error: msg }));
         }
     };
 
@@ -229,13 +257,17 @@ const InventoryManagement = ({ navigateTo, userId }) => {
     };
 
     const [invField, setInvField] = useState('all');
-    const filteredInventory = inventory.filter(item => {
-        if (!invSearch.trim()) return true;
+    // Memoised so a new array isn't built on every render (a parent re-render
+    // or a realtime tick would otherwise re-filter the whole list each time).
+    const filteredInventory = useMemo(() => {
+        if (!invSearch.trim()) return inventory;
         const q = invSearch.toLowerCase();
-        if (invField === 'sku') return (item.id || '').toLowerCase().includes(q);
-        if (invField === 'name') return (item.name || '').toLowerCase().includes(q);
-        return (item.id || '').toLowerCase().includes(q) || (item.name || '').toLowerCase().includes(q);
-    });
+        return inventory.filter(item => {
+            if (invField === 'sku') return (item.id || '').toLowerCase().includes(q);
+            if (invField === 'name') return (item.name || '').toLowerCase().includes(q);
+            return (item.id || '').toLowerCase().includes(q) || (item.name || '').toLowerCase().includes(q);
+        });
+    }, [inventory, invSearch, invField]);
 
     // Sortable header state — clicking a column cycles asc → desc → none.
     // We project numeric fields (stock, restockLimit, price) onto themselves
@@ -244,11 +276,39 @@ const InventoryManagement = ({ navigateTo, userId }) => {
     const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedInventory } =
         useSortable(filteredInventory, null, 'asc');
 
+    // ── Pagination ───────────────────────────────────────────────────────
+    // A non-virtualised table of 1000+ <tr> nodes is what blanked the screen
+    // when opening Inventory. Capping the rendered DOM to one page of rows
+    // keeps the view responsive at any inventory size.
+    const PAGE_SIZE = 50;
+    const [page, setPage] = useState(1);
+    const pageCount = Math.max(1, Math.ceil(sortedInventory.length / PAGE_SIZE));
+    const safePage = Math.min(page, pageCount);
+
+    // Snap back to page 1 whenever the result set or ordering changes.
+    useEffect(() => { setPage(1); }, [invSearch, invField, sortKey, sortDir]);
+
+    const pagedInventory = useMemo(
+        () => sortedInventory.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+        [sortedInventory, safePage]
+    );
+
     return (<>
         {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
         {isModalOpen && <ItemModal item={editingItem} onSave={handleSaveItem} onClose={handleCloseModal} />}
         {deletingItemId && <ConfirmationModal title="Confirm Deletion" message="This item will be permanently deleted." onConfirm={handleConfirmDelete} onCancel={handleCancelDelete} confirmText="Delete" confirmColor="bg-red-600 hover:bg-red-700" />}
         {pendingImport && <ConfirmationModal title="Confirm Import" message={`Found ${pendingImport.length} items. This will update/add to inventory.`} onConfirm={handleConfirmImport} onCancel={handleCancelImport} confirmText="Update & Add" confirmColor="bg-blue-600 hover:bg-blue-700" />}
+        {importProgress && (
+            <ImportProgressModal
+                title="Importing inventory"
+                processed={importProgress.processed}
+                total={importProgress.total}
+                failed={importProgress.failed}
+                done={importProgress.done}
+                error={importProgress.error}
+                onClose={() => setImportProgress(null)}
+            />
+        )}
         <PageHeader
             title="Inventory Management"
             actions={
@@ -281,7 +341,7 @@ const InventoryManagement = ({ navigateTo, userId }) => {
                             <th className="p-4 font-semibold text-sm text-center text-n-600 uppercase tracking-wider text-[11px]">Actions</th>
                         </tr>
                     </thead>
-                    <tbody>{sortedInventory.map((item) => (<tr key={item.id} className="border-b hover:bg-surface-sunken"><td className="p-4 text-sm">{item.id}</td>
+                    <tbody>{pagedInventory.map((item) => (<tr key={item.id} className="border-b hover:bg-surface-sunken"><td className="p-4 text-sm">{item.id}</td>
                         <td className="p-4 font-medium">{item.name}</td><td className="p-4 text-sm">{item.vendor}</td>
                         <td className="p-4 text-sm text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${(item.itemType || 'Hardware') === 'Hardware' ? 'bg-blue-100 text-blue-700' : (item.itemType || 'Hardware') === 'Software' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{item.itemType || 'Hardware'}</span></td>
                         <td className="p-4 text-sm text-center text-ink-muted">{item.currency || 'GHS'}</td>
@@ -291,6 +351,21 @@ const InventoryManagement = ({ navigateTo, userId }) => {
                             <button onClick={() => handleDeleteRequest(item.id)} className="text-red-600 font-medium">Delete</button></td></tr>))}
                     </tbody>
                 </table>
+            </div>
+            {/* Pagination — only PAGE_SIZE rows are ever in the DOM at once. */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-ink-muted">
+                <span>
+                    {sortedInventory.length === 0
+                        ? (inventoryLoading ? 'Loading inventory…' : 'No items')
+                        : `Showing ${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, sortedInventory.length)} of ${sortedInventory.length} items`}
+                </span>
+                <div className="flex items-center gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => setPage(1)} disabled={safePage <= 1}>« First</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage <= 1}>‹ Prev</Button>
+                    <span className="px-2 whitespace-nowrap">Page {safePage} / {pageCount}</span>
+                    <Button variant="secondary" size="sm" onClick={() => setPage(p => Math.min(pageCount, p + 1))} disabled={safePage >= pageCount}>Next ›</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setPage(pageCount)} disabled={safePage >= pageCount}>Last »</Button>
+                </div>
             </div>
         </div>
     </>

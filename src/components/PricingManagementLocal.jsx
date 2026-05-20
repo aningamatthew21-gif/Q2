@@ -255,6 +255,25 @@ const PricingManagementLocal = ({ userId, navigateTo }) => {
     return filtered;
   }, [inventory, searchTerm, filterType, filterCurrency, sortBy, sortOrder, getLandedCost]);
 
+  // ── Pagination ─────────────────────────────────────────────────────
+  // The price list renders a 16-column row per item AND recomputes the
+  // full landed-cost breakdown for each. With 1000+ items that's tens of
+  // thousands of DOM nodes plus a cost calc per row — the same
+  // non-virtualised blow-up that blanked the Inventory page. Capping the
+  // DOM to one page keeps it responsive at any catalogue size.
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(filteredAndSortedInventory.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+
+  // Snap back to page 1 whenever the filtered/sorted result set changes.
+  useEffect(() => { setPage(1); }, [searchTerm, filterType, filterCurrency, sortBy, sortOrder]);
+
+  const pagedInventory = useMemo(
+    () => filteredAndSortedInventory.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredAndSortedInventory, safePage]
+  );
+
   const fmtNum = (v, dec = 2) => v != null ? Number(v).toFixed(dec) : '0.00';
   const fmtCur = (v) => `GHS ${fmtNum(v)}`;
 
@@ -376,7 +395,7 @@ const PricingManagementLocal = ({ userId, navigateTo }) => {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {filteredAndSortedInventory.length > 0 ? (
-                        filteredAndSortedInventory.map((item) => {
+                        pagedInventory.map((item) => {
                           const lc = getLandedCost(item);
                           return (
                             <tr key={item.id} className="hover:bg-gray-50">
@@ -418,6 +437,26 @@ const PricingManagementLocal = ({ userId, navigateTo }) => {
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Pagination — only PAGE_SIZE rows are ever in the DOM. */}
+                <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-gray-600">
+                  <span>
+                    {filteredAndSortedInventory.length === 0
+                      ? 'No items'
+                      : `Showing ${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filteredAndSortedInventory.length)} of ${filteredAndSortedInventory.length}`}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setPage(1)} disabled={safePage <= 1}
+                      className="px-2 py-1 border border-gray-300 rounded-md text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50">&laquo; First</button>
+                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage <= 1}
+                      className="px-2 py-1 border border-gray-300 rounded-md text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50">&lsaquo; Prev</button>
+                    <span className="px-2 whitespace-nowrap">Page {safePage} / {pageCount}</span>
+                    <button onClick={() => setPage(p => Math.min(pageCount, p + 1))} disabled={safePage >= pageCount}
+                      className="px-2 py-1 border border-gray-300 rounded-md text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50">Next &rsaquo;</button>
+                    <button onClick={() => setPage(pageCount)} disabled={safePage >= pageCount}
+                      className="px-2 py-1 border border-gray-300 rounded-md text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50">Last &raquo;</button>
+                  </div>
                 </div>
               </div>
 

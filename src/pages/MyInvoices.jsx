@@ -5,6 +5,7 @@ import { useRealtimeInvoices } from '../hooks/useRealtimeInvoices';
 import PreviewModal from '../components/PreviewModal';
 import PageHeader from '../components/common/PageHeader';
 import Button from '../components/common/Button';
+import Notification from '../components/common/Notification';
 
 import { useActivityLog } from '../hooks/useActivityLog';
 import { SortableHeader, useSortable } from '../components/v2';
@@ -15,6 +16,9 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
     const { log } = useActivityLog();
     const { askText, askConfirm } = usePrompt();
     const [previewData, setPreviewData] = useState(null);
+    // Toast for transient errors — replaces the previous browser alert()s
+    // which broke the Fluent 2 visual language and blocked the page.
+    const [notification, setNotification] = useState(null);
 
     // M7 — read filter state from URL on mount so browser reload / shared link keeps it
     const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -208,7 +212,7 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
                 exchangeRate: completeInvoiceData.exchangeRate 
             };
             setPreviewData(previewDataObj);
-        } catch (error) { console.error('Error preparing preview data:', error); alert('Error preparing invoice preview. Please try again.'); }
+        } catch (error) { console.error('Error preparing preview data:', error); setNotification({ type: 'error', message: 'Error preparing invoice preview. Please try again.' }); }
     };
 
     const calculateDynamicTotals = (subtotalWithCharges, taxes, orderCharges = {}) => {
@@ -265,7 +269,7 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
             await api.put(`/invoices/${previewData.invoiceId}`, { status: 'Awaiting Acceptance', sentAt: new Date() });
             log('DOCUMENT_ACTION', `Sent Invoice ${previewData.invoiceId} to customer (Email/Download)`, { category: 'document', action: 'send_invoice', documentId: previewData.invoiceId });
             return true;
-        } catch (error) { console.error('Error updating invoice status:', error); alert('Failed to update invoice status. Please try again.'); return false; }
+        } catch (error) { console.error('Error updating invoice status:', error); setNotification({ type: 'error', message: 'Failed to update invoice status. Please try again.' }); return false; }
     };
 
     const handleSendEmail = async () => {
@@ -275,7 +279,7 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
         const invoiceId = previewData.invoiceId || 'INV-2025-XXXXX';
         const total = previewData.totals?.grandTotal || previewData.subtotal || 0;
         const currency = previewData.currency || 'GHS';
-        if (!customer?.contactEmail) { alert('Customer email not available. Please add customer email first.'); return; }
+        if (!customer?.contactEmail) { setNotification({ type: 'error', message: 'Customer email not available. Please add customer email first.' }); return; }
         const subject = `Invoice ${invoiceId} from Margins ID Systems`;
         const locale = currency === 'USD' ? 'en-US' : 'en-GH';
         const formattedTotal = new Intl.NumberFormat(locale, { style: 'currency', currency: currency }).format(total);
@@ -428,7 +432,7 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
         log('INVENTORY_ACTION', `Restored stock for revised Invoice ${invoice.id}`, {
             documentId: invoice.id, itemCount: restored
         });
-        navigateTo('invoiceEditor', { invoiceId: invoice.id });
+        navigateTo('invoiceEditor', { invoiceId: invoice.id, returnTo: 'myInvoices' });
     };
 
     const formatListAmount = (amount, currency) => {
@@ -442,6 +446,9 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
 
     return (
         <>
+            {notification && (
+                <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />
+            )}
             {previewData && (
                 <PreviewModal open={!!previewData} onClose={() => setPreviewData(null)} payload={previewData} mode="invoice" isDistribution={true} onEmail={handleSendEmail} onDownload={handleDownloadAction} />
             )}

@@ -4,7 +4,8 @@ const express = require('express');
 const crypto = require('crypto');
 const { execute, transaction } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, requirePermission } = require('../middleware/authMiddleware');
+const { can } = require('../../shared/permissions');
 const { emitToAll } = require('../utils/socketEmitter');
 
 const router = express.Router();
@@ -14,7 +15,18 @@ router.use(authMiddleware);
  * GET /api/quotes
  */
 router.get('/', catchAsync(async (req, res) => {
-  const result = await execute('SELECT * FROM QA_QUOTES ORDER BY CREATED_AT DESC FETCH FIRST 500 ROWS ONLY');
+  // SCOPE FILTER — users without `invoice.read.all` (which a sales_officer
+  // doesn't have) only see quotes they created. Same shape as the
+  // /api/invoices GET scope filter so behaviour is consistent across the
+  // sales surface.
+  let sql = 'SELECT * FROM QA_QUOTES';
+  const binds = {};
+  if (!can(req.user.role, 'invoice.read.all')) {
+    sql += ' WHERE LOWER(CREATED_BY) = LOWER(:me)';
+    binds.me = req.user.email;
+  }
+  sql += ' ORDER BY CREATED_AT DESC FETCH FIRST 500 ROWS ONLY';
+  const result = await execute(sql, binds);
   
   const quotes = [];
   
@@ -82,7 +94,7 @@ router.get('/', catchAsync(async (req, res) => {
 /**
  * POST /api/quotes
  */
-router.post('/', catchAsync(async (req, res) => {
+router.post('/', requirePermission('quote.create'), catchAsync(async (req, res) => {
   const qt = req.body;
   if (!qt.id) qt.id = crypto.randomUUID();
 
@@ -164,7 +176,7 @@ router.post('/', catchAsync(async (req, res) => {
 /**
  * PUT /api/quotes/:id
  */
-router.put('/:id', catchAsync(async (req, res) => {
+router.put('/:id', requirePermission('quote.create'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
 
@@ -200,7 +212,7 @@ router.put('/:id', catchAsync(async (req, res) => {
 /**
  * DELETE /api/quotes/:id
  */
-router.delete('/:id', catchAsync(async (req, res) => {
+router.delete('/:id', requirePermission('quote.create'), catchAsync(async (req, res) => {
   const { id } = req.params;
   await execute('DELETE FROM QA_QUOTES WHERE QUOTE_ID = :id', { id });
   emitToAll('quotes:updated');

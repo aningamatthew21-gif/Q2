@@ -6,6 +6,7 @@ import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import CustomerModal from '../components/modals/CustomerModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
+import ImportProgressModal from '../components/modals/ImportProgressModal';
 import { logActivity } from '../utils/logger';
 import { invalidateCache } from '../utils/cache';
 import { useRealtimeCustomers } from '../hooks/useRealtimeCustomers';
@@ -18,6 +19,8 @@ const CustomerManagement = ({ navigateTo, userId }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState(null);
     const [pendingImport, setPendingImport] = useState(null);
+    // Live state for the blocking import-progress modal (null when idle).
+    const [importProgress, setImportProgress] = useState(null);
     const [notification, setNotification] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [deletingCustomer, setDeletingCustomer] = useState(null);
@@ -82,24 +85,42 @@ const CustomerManagement = ({ navigateTo, userId }) => {
     };
     const handleConfirmImport = async () => {
         if (!pendingImport) return;
-        try {
-            // Sequential API calls for import (or could use a bulk endpoint if available)
-            for (const customer of pendingImport) {
-                // We use POST and assume the backend handles duplicates or we check first
-                // For simplicity, we just try to save each one
-                await api.post('/customers', customer).catch(err => {
-                    // If it fails (e.g. 409 Conflict), try PUT
-                    return api.put(`/customers/${customer.id}`, customer);
-                });
-            }
-            logActivity(username, 'Imported Customers', `Imported ${pendingImport.length} customers.`);
+        const items = pendingImport;
+        const total = items.length;
+        // Chunked bulk upsert. Each chunk is ONE request that MERGEs every
+        // row server-side and broadcasts a single `customers:updated` —
+        // replacing the old one-POST-per-row loop.
+        const CHUNK = 200;
 
+        // Swap the confirmation dialog for the BLOCKING progress modal the
+        // instant the import starts, so "Update & Add" / Cancel can't be
+        // clicked again mid-load (the double-data-entry the user reported).
+        setPendingImport(null);
+        setImportProgress({ processed: 0, total, failed: 0, done: false, error: null });
+
+        let attempted = 0;
+        let failed = 0;
+        try {
+            for (let i = 0; i < total; i += CHUNK) {
+                const batch = items.slice(i, i + CHUNK);
+                try {
+                    const res = await api.post('/customers/bulk', { items: batch });
+                    failed += (res && res.success) ? (res.data?.failed || 0) : batch.length;
+                } catch (batchErr) {
+                    failed += batch.length;
+                    console.warn('[Customer import] batch failed:', batchErr?.message);
+                }
+                attempted += batch.length;
+                setImportProgress(p => p && ({ ...p, processed: attempted, failed }));
+            }
+
+            logActivity(username, 'Imported Customers', `Imported ${total} customers.`);
             invalidateCache('customers');
-            setNotification({ type: 'success', message: `Imported ${pendingImport.length} customers successfully.` });
-            setPendingImport(null);
+            setImportProgress(p => p && ({ ...p, processed: total, failed, done: true }));
         } catch (error) {
             console.error('Import failed:', error);
-            setNotification({ type: 'error', message: 'Import failed partially or fully. Check logs.' });
+            const msg = error?.response?.data?.error || error?.message || 'Unknown error';
+            setImportProgress(p => p && ({ ...p, processed: attempted, failed, done: true, error: msg }));
         }
     };
     const handleExportToCSV = () => {
@@ -210,6 +231,17 @@ const CustomerManagement = ({ navigateTo, userId }) => {
             {notification && <Notification message={notification.message} type={notification.type} onDismiss={() => setNotification(null)} />}
             {isModalOpen && <CustomerModal customer={editingCustomer} onSave={handleSaveCustomer} onClose={handleCloseModal} />}
             {pendingImport && <ConfirmationModal title="Confirm Import" message={`Found ${pendingImport.length} customers. This will update existing and add new ones.`} onConfirm={handleConfirmImport} onCancel={() => setPendingImport(null)} confirmText="Update & Add" confirmColor="bg-blue-600" />}
+            {importProgress && (
+                <ImportProgressModal
+                    title="Importing customers"
+                    processed={importProgress.processed}
+                    total={importProgress.total}
+                    failed={importProgress.failed}
+                    done={importProgress.done}
+                    error={importProgress.error}
+                    onClose={() => setImportProgress(null)}
+                />
+            )}
             {deletingCustomer && <ConfirmationModal title="Confirm Delete" message={`Are you sure you want to delete customer "${deletingCustomer.name}"? This action cannot be undone.`} onConfirm={() => handleDeleteCustomer(deletingCustomer)} onCancel={() => setDeletingCustomer(null)} confirmText="Delete" confirmColor="bg-red-600" />}
 
             <PageHeader

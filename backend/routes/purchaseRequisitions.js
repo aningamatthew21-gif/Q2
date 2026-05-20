@@ -4,7 +4,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { execute, transaction } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
+const { authMiddleware, requireRole, requirePermission } = require('../middleware/authMiddleware');
 const { emitToAll } = require('../utils/socketEmitter');
 
 const router = express.Router();
@@ -137,7 +137,7 @@ router.get('/:id', catchAsync(async (req, res) => {
  * POST /api/purchase-requisitions
  * Manually create a PR (procurement, controller, admin)
  */
-router.post('/', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/', requirePermission('pr.create'), catchAsync(async (req, res) => {
   const pr = req.body || {};
   if (!pr.itemName) {
     return res.status(400).json({ success: false, error: 'itemName is required' });
@@ -192,7 +192,7 @@ router.post('/', requireRole('procurement', 'controller', 'admin'), catchAsync(a
  * PUT /api/purchase-requisitions/:id
  * Update fields (assign, status, priority, notes)
  */
-router.put('/:id', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.put('/:id', requirePermission('pr.create'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const updates = req.body || {};
 
@@ -239,7 +239,7 @@ router.put('/:id', requireRole('procurement', 'controller', 'admin'), catchAsync
 /**
  * POST /api/purchase-requisitions/:id/cancel
  */
-router.post('/:id/cancel', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/:id/cancel', requirePermission('pr.cancel'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const reason = req.body?.reason || 'Cancelled by procurement';
   await transaction(async (conn) => {

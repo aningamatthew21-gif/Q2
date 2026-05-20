@@ -10,22 +10,24 @@ import QuantityModal from '../components/modals/QuantityModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
 import ReApprovalBanner from '../components/invoices/ReApprovalBanner';
 import { logActivity } from '../utils/logger';
+import { isFinanceController, resolveReturnPage } from '../utils/roles';
+import { can } from '../utils/permissions';
 
 const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
-    const { invoiceId } = pageContext;
+    const { invoiceId } = pageContext || {};
 
-    // 2. New Logic for Back/Cancel Navigation
+    // Where Cancel / post-approval navigation should land.
+    //
+    // Prefers an explicit `returnTo` handed in by whoever opened the
+    // editor (All Invoices, My Invoices, a dashboard tile…) — that's the
+    // industry-standard "return URL" pattern — and falls back to a
+    // ROLE-AWARE default. The old code only knew the flat roles
+    // `'sales'` / `'controller'`, so a tiered user (finance_head, …)
+    // hit the `else` branch and was dumped on the sales dashboard, and
+    // after an approval was sent to `myInvoices` — a page finance can't
+    // open — which is the "access restricted" screen the user saw.
     const handleBackNavigation = () => {
-        if (currentUser?.role === 'sales') {
-            // Salespeople go to "My Invoices"
-            navigateTo('myInvoices');
-        } else if (currentUser?.role === 'controller') {
-            // Controllers go to "All Invoices"
-            navigateTo('invoices');
-        } else {
-            // Fallback
-            navigateTo('salesDashboard');
-        }
+        navigateTo(resolveReturnPage(pageContext, currentUser));
     };
 
     const { data: inventory, loading: inventoryLoading } = useRealtimeInventory();
@@ -51,11 +53,22 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
     const [reapprovalSubmitting, setReapprovalSubmitting] = useState(false);
 
     // M8 — prevent line-item edits while procurement is actively sourcing.
-    // Controller/admin can still override for exceptional cases; other roles are locked out.
+    // Finance desk (any finance role) / admin can still override for
+    // exceptional cases; other roles are locked out.
+    const sourcingInProgress =
+        invoice?.sourcingStatus === 'PENDING' || invoice?.sourcingStatus === 'PARTIAL';
     const sourcingLocked =
-        (invoice?.sourcingStatus === 'PENDING' || invoice?.sourcingStatus === 'PARTIAL') &&
-        currentUser?.role !== 'controller' &&
-        currentUser?.role !== 'admin';
+        sourcingInProgress && !isFinanceController(currentUser?.role);
+
+    // ── Sourcing gate on APPROVAL ───────────────────────────────────────
+    // An invoice that still needs procurement (sourcingStatus PENDING or
+    // PARTIAL) carries placeholder prices for its sourced lines — the real
+    // cost only lands once the RFQ is AWARDED and pushed back, which flips
+    // sourcingStatus to COMPLETE. Approving before that means the finance
+    // head signs off a total that isn't real. So approval is blocked until
+    // sourcing completes; rejection stays available (finance can always
+    // bounce a quote back). NONE = no procurement needed = free to approve.
+    const sourcingBlocksApproval = sourcingInProgress;
 
     // Phase 4 — handle re-approval decisions from the ReApprovalBanner
     const handleReapprovalDecision = async ({ decision, note }) => {
@@ -320,6 +333,19 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                 return;
             }
 
+            // Sourcing gate — a quote whose procurement isn't finished yet
+            // still carries placeholder prices; approving it would sign off
+            // a total that isn't real. Block approval until sourcing
+            // completes (the RFQ award pushes the real cost back and flips
+            // sourcingStatus to COMPLETE). Rejection stays allowed.
+            if (newStatus === 'Approved' && sourcingBlocksApproval) {
+                setNotification({
+                    type: 'error',
+                    message: 'This quote has items still being sourced by procurement. It can be approved only once sourcing is complete and the RFQ has been awarded.'
+                });
+                return;
+            }
+
             const updateData = {
                 status: newStatus,
                 lineItems: quoteItems.map(item => ({
@@ -334,31 +360,35 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                 orderCharges: orderCharges,
                 taxBreakdown: taxes,
                 currency: currency,
-                exchangeRate: fxRateGhsPerUsd || invoice?.exchangeRate
+                exchangeRate: fxRateGhsPerUsd || invoice?.exchangeRate,
+                // Optimistic-concurrency token — backend returns 409 if a
+                // different user changed this invoice since we loaded it.
+                ...(invoice?.rowVersion !== undefined ? { rowVersion: invoice.rowVersion } : {})
             };
 
-            if (newStatus === 'Approved') {
-                if (selectedSignature) {
-                    updateData.signatureData = JSON.stringify({
-                        signatureUrl: selectedSignature.signatureUrl,
-                        controllerName: selectedSignature.controllerName,
-                        subsidiary: selectedSignature.subsidiary,
-                        timestamp: new Date().toISOString()
-                    });
-                }
-
-                // Inventory Deduction
-                for (const item of quoteItems) {
-                    if (item.id && item.type !== 'sourced') {
-                        const invRes = await api.get(`/inventory/${item.id}`);
-                        if (invRes.success) {
-                            const newStock = (invRes.data.stock || 0) - (Number(item.quantity) || 0);
-                            await api.put(`/inventory/${item.id}`, { stock: newStock });
-                        }
-                    }
-                }
+            if (newStatus === 'Approved' && selectedSignature) {
+                updateData.signatureData = JSON.stringify({
+                    signatureUrl: selectedSignature.signatureUrl,
+                    controllerName: selectedSignature.controllerName,
+                    subsidiary: selectedSignature.subsidiary,
+                    timestamp: new Date().toISOString()
+                });
             }
 
+            // Persist the status change. The server now decrements
+            // inventory atomically inside the same transaction (see
+            // backend/routes/invoices.js PUT) — sourced / custom items
+            // that aren't in QA_INVENTORY are skipped server-side, and
+            // any real SKU that lacks stock fails the whole approval
+            // with code:'INSUFFICIENT_STOCK' (surfaced by the catch).
+            //
+            // The old client-side GET-then-PUT inventory loop that
+            // followed this call was a lost-update race — two
+            // concurrent approvals for the same SKU both read the same
+            // stock value and both wrote it back. Removing it kills
+            // the race; doing it in one transaction also removes the
+            // "approved invoice but stock wasn't deducted" half-state
+            // that crashes on a stray sourced line.
             await api.put(`/invoices/${invoiceId}`, updateData);
 
             await logActivity(userId, newStatus === 'Approved' ? 'Approved' : 'Rejected', `Invoice: ${invoice.invoiceNumber}`, {
@@ -366,12 +396,20 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                 statusAfter: newStatus,
                 totalValue: totals.grandTotal
             });
-            
+
             setNotification({ type: 'success', message: `Invoice ${invoiceId} has been ${newStatus.toLowerCase()}.` });
-            setTimeout(() => navigateTo(currentUser?.role === 'controller' ? 'invoices' : 'myInvoices'), 2000);
+            // Return the user to wherever they came from — role-aware, so a
+            // finance head goes back to All Invoices, never to a page their
+            // role can't open (which is what produced the "access
+            // restricted" screen).
+            const dest = resolveReturnPage(pageContext, currentUser);
+            setTimeout(() => navigateTo(dest), 1500);
         } catch (error) {
             console.error('Approval failed:', error);
-            setNotification({ type: 'error', message: `Failed to ${newStatus.toLowerCase()} invoice: ${error.message}` });
+            // Surface the server's real reason (e.g. the sourcing gate)
+            // rather than the opaque axios "Request failed with status…".
+            const serverMsg = error?.response?.data?.error || error?.message || 'Unknown error';
+            setNotification({ type: 'error', message: `Failed to ${newStatus.toLowerCase()} invoice: ${serverMsg}` });
         }
     };
 
@@ -390,9 +428,7 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                 <ReApprovalBanner
                     invoice={invoice}
                     canAct={
-                        currentUser?.role === 'controller' ||
-                        currentUser?.role === 'admin' ||
-                        currentUser?.role === 'sales_main' ||
+                        can(currentUser, 'invoice.reapprove') ||
                         invoice?.salesPersonId === currentUser?.email
                     }
                     onDecision={handleReapprovalDecision}
@@ -432,6 +468,22 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                             <strong>Quote locked.</strong> Procurement is currently sourcing items on this quote.
                             Line items, quantities, and additions are frozen until sourcing completes
                             (to prevent duplicate purchase requisitions). Contact the controller if an urgent change is needed.
+                        </div>
+                    </div>
+                )}
+
+                {/* Approval is gated until procurement finishes. Shown to
+                    everyone (finance can still edit, but nobody can approve
+                    a quote whose sourced-item prices aren't final yet). */}
+                {sourcingBlocksApproval && (
+                    <div className="bg-amber-50 border-l-4 border-amber-400 rounded-md p-4 mb-6 text-sm text-amber-800 flex items-start gap-2">
+                        <Icon id="info-circle" className="mt-0.5" />
+                        <div>
+                            <strong>Approval locked &mdash; sourcing in progress.</strong> This quote has items
+                            being sourced by procurement ({invoice?.sourcingStatus === 'PENDING' ? 'awaiting procurement' : 'sourcing in progress'}
+                            {invoice?.prCount > 0 ? `, ${invoice.prCount} PR${invoice.prCount > 1 ? 's' : ''}` : ''}).
+                            It can be approved only once sourcing is complete and the RFQ has been awarded, so the
+                            final prices are reflected here. You can still reject the quote if needed.
                         </div>
                     </div>
                 )}
@@ -476,8 +528,8 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                                             <td className="p-2 text-sm font-medium">{item.name} <br/> {item.type === 'sourced' && <div className='text-sm text-blue-400'>({item.description})</div>} </td>
                                             <td className="p-1"><input type="number" value={item.quantity} onChange={e => handleUpdateItem(item.id, 'quantity', e.target.value)} className="w-16 text-center border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed" min="0" disabled={sourcingLocked} /></td>
                                             <td className="p-1 text-right text-sm font-medium">
-                                                {/* Logic: If it is Sourced AND I am a Controller, allow editing */}
-                                                {item.type === 'sourced' && currentUser?.role === 'controller' ? (
+                                                {/* Logic: If it is Sourced AND I work the finance desk, allow editing */}
+                                                {item.type === 'sourced' && isFinanceController(currentUser?.role) ? (
                                                     <div className="flex flex-col items-end">
                                                         <label className="text-[10px] text-gray-400">Cost (GHS)</label>
                                                         <input
@@ -706,14 +758,24 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                                     </button>
                                     <button
                                         onClick={() => handleApproval('Approved')}
-                                        disabled={!selectedSignature}
-                                        className={`py-2 px-6 text-white rounded-md font-semibold ${selectedSignature
+                                        disabled={!selectedSignature || sourcingBlocksApproval}
+                                        className={`py-2 px-6 text-white rounded-md font-semibold ${selectedSignature && !sourcingBlocksApproval
                                             ? 'bg-green-600 hover:bg-green-700'
                                             : 'bg-gray-400 cursor-not-allowed'
                                             }`}
-                                        title={selectedSignature ? 'Approve with selected signature' : 'Please select a signature first'}
+                                        title={
+                                            sourcingBlocksApproval
+                                                ? 'Procurement is still sourcing this quote — approval unlocks once the RFQ is awarded.'
+                                                : selectedSignature
+                                                    ? 'Approve with selected signature'
+                                                    : 'Please select a signature first'
+                                        }
                                     >
-                                        {selectedSignature ? 'Save & Approve' : 'Select Signature First'}
+                                        {sourcingBlocksApproval
+                                            ? 'Awaiting Sourcing'
+                                            : selectedSignature
+                                                ? 'Save & Approve'
+                                                : 'Select Signature First'}
                                     </button>
                                 </>
                             )}

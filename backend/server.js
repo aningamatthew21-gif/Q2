@@ -14,6 +14,7 @@ const { Server } = require('socket.io');
 const { initPool } = require('./db');
 const { setIoInstance } = require('./utils/socketEmitter');
 const { startStalenessWatcher } = require('./jobs/stalenessWatcher');
+const { startNotificationWatcher } = require('./jobs/notificationWatcher');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const authRoutes = require('./routes/auth');
@@ -31,6 +32,7 @@ const purchaseRequisitionRoutes = require('./routes/purchaseRequisitions');
 const usersRoutes = require('./routes/users');
 const rfqRoutes = require('./routes/rfqs');
 const procurementSettingsRoutes = require('./routes/procurementSettings');
+const notificationRoutes = require('./routes/notifications');
 const { auditMiddleware } = require('./middleware/auditMiddleware');
 
 // Global tax settings (can be updated via API)
@@ -75,6 +77,51 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
+// Auto-audit middleware MUST be registered BEFORE the route mounts.
+// Routers call `res.json()` and don't invoke `next()`, so any middleware
+// registered AFTER the routers never runs for those requests. By placing
+// auditMiddleware here, it gets a chance to attach its `res.on('finish')`
+// hook on every incoming /api/* request; the hook fires after the route
+// handler completes regardless of whether next() was called.
+app.use(auditMiddleware);
+
+// ── Rate limiting ─────────────────────────────────────────────────────
+// Must also be registered BEFORE the route mounts for the same reason as
+// auditMiddleware — Express routers terminate the chain when they handle
+// a request, so anything registered after them never runs.
+//
+// Three tiers:
+//   1. otpLimiter   — strict per-email throttle on /auth/send-otp so a
+//                     target's inbox can't be flooded.
+//   2. aiLimiter    — 10/min on /api/ai/* (expensive upstream calls).
+//   3. apiLimiter   — 300/min on the rest of /api/* (generous catch-all).
+const otpLimiter = rateLimit({
+  windowMs:        15 * 60 * 1000,    // 15 minutes
+  max:             3,                  // 3 OTPs per email per window
+  // Key by normalised email when provided; fall back to IP for sanity.
+  keyGenerator:    (req) => {
+    const email = (req.body && req.body.email) ? String(req.body.email).trim().toLowerCase() : '';
+    return email || req.ip;
+  },
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message:         { success: false, error: 'Too many OTP requests for this email. Try again in 15 minutes.' }
+});
+const aiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  message: 'Too many AI requests, please try again later'
+});
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 300,
+  message: 'Too many requests, please try again later',
+  skip: (req) => req.path.startsWith('/ai')
+});
+app.use('/api/auth/send-otp', otpLimiter);
+app.use('/api/ai', aiLimiter);
+app.use('/api', apiLimiter);
+
 // Oracle DB API Routes (mounted before AI routes)
 app.use('/api/auth', authRoutes);
 app.use('/api/customers', customerRoutes);
@@ -90,25 +137,14 @@ app.use('/api/purchase-requisitions', purchaseRequisitionRoutes);
 app.use('/api/rfqs', rfqRoutes);
 app.use('/api/procurement-settings', procurementSettingsRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/notifications', notificationRoutes);
 
-// Auto-audit middleware: captures every POST/PUT/DELETE after response
-app.use(auditMiddleware);
-
-
-// Rate limiting — AI endpoint is strict (10/min), all other API routes get a generous limit (300/min)
-const aiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 10,
-  message: 'Too many AI requests, please try again later'
-});
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 300,
-  message: 'Too many requests, please try again later',
-  skip: (req) => req.path.startsWith('/ai') // AI routes use stricter limiter below
-});
-app.use('/api/ai', aiLimiter);
-app.use('/api', apiLimiter);
+// NOTE: auditMiddleware AND the rate limiters were previously declared HERE,
+// AFTER the route mounts. Because Express routers terminate their requests
+// with `res.json()` and don't call next(), nothing past this point ever
+// ran for /api/customers, /api/invoices, etc. — the audit hook never fired
+// for business mutations, and the rate limiters were inert. Both have been
+// moved above the route mounts (Pass 3 + Pass 4) so they actually run.
 
 // Input validation and sanitization
 const sanitizeInput = (text) => {
@@ -1068,6 +1104,11 @@ initPool()
       // Interval overridable via STALENESS_CHECK_INTERVAL_MS (default: 1 hour).
       const stalenessIntervalMs = Number(process.env.STALENESS_CHECK_INTERVAL_MS) || (60 * 60 * 1000);
       startStalenessWatcher({ intervalMs: stalenessIntervalMs });
+      // Notification watcher — state-based alerts (low stock, expiring
+      // quotes, approval-SLA breaches). Interval overridable via
+      // NOTIFICATION_CHECK_INTERVAL_MS (default 15 min).
+      const notificationIntervalMs = Number(process.env.NOTIFICATION_CHECK_INTERVAL_MS) || (15 * 60 * 1000);
+      startNotificationWatcher({ intervalMs: notificationIntervalMs });
     });
   })
   .catch(err => {

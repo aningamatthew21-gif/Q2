@@ -4,8 +4,12 @@ import { useRealtimeInventory } from '../../hooks/useRealtimeInventory';
 import { formatCurrency } from '../../utils/formatting';
 
 const PriceListSettings = ({ currentMonthRate, currentMonthKey }) => {
-    const { data: inventory, loading: inventoryLoading } = useRealtimeInventory();
+    const { data: rawInventory, loading: inventoryLoading } = useRealtimeInventory();
+    const inventory = Array.isArray(rawInventory) ? rawInventory : [];
     const [priceListSearch, setPriceListSearch] = useState('');
+
+    const itemMatchesSearch = (item) =>
+        (item.name || '').toLowerCase().includes(priceListSearch.toLowerCase());
 
     const handleExportPriceList = () => {
         const headers = ["S/N", "SKU", "Description", "Stock Level", "Final Price (GHS)", "Final Price (USD)", "Exchange Rate"];
@@ -13,9 +17,7 @@ const PriceListSettings = ({ currentMonthRate, currentMonthKey }) => {
 
         const csvRows = [headers.join(',')];
 
-        const filteredInventory = inventory.filter(item =>
-            item.name.toLowerCase().includes(priceListSearch.toLowerCase())
-        );
+        const filteredInventory = inventory.filter(itemMatchesSearch);
 
         filteredInventory.forEach((item, index) => {
             const priceGhs = item.price || 0;
@@ -25,7 +27,7 @@ const PriceListSettings = ({ currentMonthRate, currentMonthKey }) => {
             const row = [
                 index + 1,
                 `"${item.id}"`,
-                `"${item.name.replace(/"/g, '""')}"`,
+                `"${(item.name || '').replace(/"/g, '""')}"`,
                 stockLevel,
                 priceGhs.toFixed(2),
                 priceUsd,
@@ -93,12 +95,12 @@ const PriceListSettings = ({ currentMonthRate, currentMonthKey }) => {
                             <tr>
                                 <td colSpan="6" className="px-6 py-4 text-center text-gray-500">Loading inventory...</td>
                             </tr>
-                        ) : inventory.filter(item => item.name.toLowerCase().includes(priceListSearch.toLowerCase())).length === 0 ? (
+                        ) : inventory.filter(itemMatchesSearch).length === 0 ? (
                             <tr>
                                 <td colSpan="6" className="px-6 py-4 text-center text-gray-500">No items found.</td>
                             </tr>
                         ) : (
-                            inventory.filter(item => item.name.toLowerCase().includes(priceListSearch.toLowerCase())).map((item, index) => {
+                            inventory.filter(itemMatchesSearch).map((item, index) => {
                                 const priceGhs = item.price || 0;
                                 const priceUsd = currentMonthRate ? (priceGhs / currentMonthRate) : 0;
                                 const stockLevel = item.stock || 0;

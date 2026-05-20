@@ -11,9 +11,17 @@ import Forbidden from '../components/v2/Forbidden';
 import AppLayout from '../components/layout/AppLayout';
 // Page-level permission gate (shared with backend via shared/permissions.js)
 import { canOpenPage as _canOpenPageNew, PAGE_PERMISSIONS } from '../utils/permissions';
+// Role-aware navigation helpers — understand BOTH legacy flat roles and
+// the new tiered roles, so a `finance_head` lands where a `controller`
+// would have, etc.
+import { landingPageFor } from '../utils/roles';
+import { NotificationProvider } from './NotificationContext';
 
 // Import all page components
-import LoginScreen from '../pages/LoginScreen';
+// Cinematic 3D login (replaces the flat LoginScreen). Lazy import is
+// done INSIDE the component file itself so the three.js bundle ships
+// only when the page actually mounts.
+import LoginCinematic from '../pages/LoginCinematic';
 import ControllerAnalyticsDashboard from '../pages/ControllerAnalyticsDashboard';
 import SalesAnalyticsDashboard from '../pages/SalesAnalyticsDashboard';
 import QuotingModule from '../pages/QuotingModule';
@@ -42,18 +50,14 @@ import UserManagement from '../pages/UserManagement';
 const AppContext = createContext();
 
 // Map a user role to its default landing page after login/session-restore.
-const roleToLandingPage = (role) => {
-    switch (role) {
-        case 'controller':
-        case 'admin':
-            return 'controllerDashboard';
-        case 'procurement':
-            return 'procurementDashboard';
-        case 'sales':
-        default:
-            return 'salesDashboard';
-    }
-};
+//
+// Delegates to `landingPageFor` (src/utils/roles.js) which understands
+// both the legacy flat roles AND the tiered roles. The previous version
+// hard-coded a switch over `controller`/`procurement`/`sales` only, so
+// every tiered role (finance_head, sales_officer, …) fell through the
+// `default:` branch and landed on the SALES dashboard — that's why a
+// finance head opened on the wrong dashboard with zero data.
+const roleToLandingPage = (role) => landingPageFor(role);
 
 // Pages that each role may access. Unauthenticated pages (login) are always allowed.
 // Pages not listed for a role redirect to that role's landing page.
@@ -272,7 +276,9 @@ export const AppProvider = ({ children }) => {
             setUserEmail(email); 
         } catch (error) {
             console.error('❌ [ERROR] OTP request failed:', error);
-            alert('Failed to send OTP. Please check your email and network connection.');
+            // Re-throw so LoginCinematic can surface the error via its own
+            // in-scene error state (replaces the legacy browser alert).
+            throw new Error(error?.response?.data?.error || 'Failed to send OTP. Please check your email and network connection.');
         }
     };
 
@@ -299,7 +305,8 @@ export const AppProvider = ({ children }) => {
             }
         } catch (error) {
             console.error('❌ [ERROR] OTP verification failed:', error);
-            alert('Invalid OTP code. Please try again.');
+            // Re-throw so LoginCinematic flips its red "failure" scene state.
+            throw new Error(error?.response?.data?.error || 'Invalid OTP code. Please try again.');
         }
     };
 
@@ -348,7 +355,7 @@ export const AppProvider = ({ children }) => {
 
         switch (page) {
             case 'login':
-                return <LoginScreen onLogin={handleLogin} onOTPLogin={handleOTPLogin} companyName={companyName} />;
+                return <LoginCinematic onLogin={handleLogin} onOTPLogin={handleOTPLogin} companyName={companyName} />;
             case 'controllerDashboard':
                 return <ControllerAnalyticsDashboard {...commonProps} />;
             case 'salesDashboard':
@@ -404,7 +411,7 @@ export const AppProvider = ({ children }) => {
                     if (landing === 'salesDashboard')        return <SalesAnalyticsDashboard {...commonProps} />;
                     return <ControllerAnalyticsDashboard {...commonProps} />;
                 }
-                return <LoginScreen onLogin={handleLogin} onOTPLogin={handleOTPLogin} companyName={companyName} />;
+                return <LoginCinematic onLogin={handleLogin} onOTPLogin={handleOTPLogin} companyName={companyName} />;
         }
     };
 
@@ -414,8 +421,14 @@ export const AppProvider = ({ children }) => {
 
     return (
         <AppContext.Provider value={value}>
-            {isChromeless ? renderPage() : <AppShell>{renderPage()}</AppShell>}
-            <GlobalStaleCheck />
+            {/* NotificationProvider sits inside AppContext so `useApp()` is
+                available to it. It's a thin wrapper — when no user is
+                logged in it just renders children with empty state, so
+                there's no harm wrapping the chromeless (login) tree too. */}
+            <NotificationProvider>
+                {isChromeless ? renderPage() : <AppShell>{renderPage()}</AppShell>}
+                <GlobalStaleCheck />
+            </NotificationProvider>
         </AppContext.Provider>
     );
 };

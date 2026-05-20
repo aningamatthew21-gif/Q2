@@ -22,7 +22,7 @@ class ErrorBoundary extends React.Component {
             stack: errorInfo.componentStack,
             userAgent: navigator.userAgent,
             url: window.location.href
-        }).catch(console.error);
+        });
     }
 
     render() {

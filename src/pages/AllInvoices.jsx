@@ -15,6 +15,7 @@ import { useDebounce } from '../hooks/useDebounce';
 import { useActivityLog } from '../hooks/useActivityLog';
 import { usePagination } from '../hooks/usePagination';
 import { useApp } from '../context/AppContext';
+import { can } from '../utils/permissions';
 
 /**
  * AllInvoices — Fluent 2 reference list page.
@@ -38,7 +39,10 @@ import { useApp } from '../context/AppContext';
  */
 const AllInvoices = ({ navigateTo, pageContext }) => {
   const { appUser } = useApp();
-  const isController = appUser?.role === 'controller';
+  // Permission-driven — works for both legacy roles AND new tiered roles
+  // (finance_officer / finance_head). The old `=== 'controller'` check
+  // silently hid the Price-item button from every tiered finance user.
+  const canPrice = can(appUser?.role, 'invoice.edit.pricing');
 
   // ── Filter state ──────────────────────────────────────────
   const [searchTerm, setSearchTerm] = useState('');
@@ -178,7 +182,7 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
         { icon: <Plus />,    label: 'New',        primary: true, onClick: () => navigateTo('quoting') },
         { divider: true },
         { icon: <Pencil />,  label: 'Edit',       disabled: !previewRow,
-          onClick: () => previewRow && navigateTo('invoiceEditor', { invoiceId: previewRow.id }) },
+          onClick: () => previewRow && navigateTo('invoiceEditor', { invoiceId: previewRow.id, returnTo: 'invoices' }) },
         { icon: <Trash2 />,  label: 'Delete',     disabled: !previewRow },
         { icon: <Download />,label: 'Export' },
         { divider: true },
@@ -300,8 +304,17 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
                 />
               </td></tr>
             ) : (
-              <motion.tbody as="tbody" variants={listContainer} initial="initial" animate="enter" style={{ display: 'contents' }}>
-                {sortedRows.map(inv => {
+              // Rows go DIRECTLY inside the outer <tbody> above.
+              // Previously this branch wrapped them in `<motion.tbody>` —
+              // a second tbody nested inside the first, which is invalid
+              // HTML. Browsers parsed it as two sibling tbodies, the empty
+              // outer one reserved space ABOVE the sticky <thead>, and the
+              // column-header bar visually drifted into the row area with
+              // a blank gap above it. Removing the wrapper restores the
+              // headers to the top of the table card. Per-row entrance
+              // animations are unchanged — each <motion.tr> still has its
+              // own `listRow` variant.
+              sortedRows.map(inv => {
                   const isSelected = previewRow?.id === inv.id;
                   return (
                     <motion.tr
@@ -335,18 +348,17 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
                         </div>
                       </td>
                       <td className={`px-3 ${rowPad} text-right`}>
-                        {inv.status === 'Pending Pricing' && isController ? (
-                          <Button size="sm" variant="primary" onClick={(e) => { e.stopPropagation(); navigateTo('invoiceEditor', { invoiceId: inv.id }); }}>Price item</Button>
+                        {inv.status === 'Pending Pricing' && canPrice ? (
+                          <Button size="sm" variant="primary" onClick={(e) => { e.stopPropagation(); navigateTo('invoiceEditor', { invoiceId: inv.id, returnTo: 'invoices' }); }}>Price item</Button>
                         ) : inv.status === 'Pending Approval' ? (
-                          <Button size="sm" variant="default" onClick={(e) => { e.stopPropagation(); navigateTo('invoiceEditor', { invoiceId: inv.id }); }}>Edit / Approve</Button>
+                          <Button size="sm" variant="default" onClick={(e) => { e.stopPropagation(); navigateTo('invoiceEditor', { invoiceId: inv.id, returnTo: 'invoices' }); }}>Edit / Approve</Button>
                         ) : (
                           <Button size="sm" variant="subtle" iconLeft={<Eye />} onClick={(e) => { e.stopPropagation(); navigateTo('customerPortal', inv.customerId); }}>Portal</Button>
                         )}
                       </td>
                     </motion.tr>
                   );
-                })}
-              </motion.tbody>
+                })
             )}
           </tbody>
         </table>
@@ -373,7 +385,7 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
           <>
             <Button variant="ghost"   onClick={() => setPreviewRow(null)}>Close</Button>
             <Button variant="default" iconLeft={<FileText />} onClick={() => navigateTo('customerPortal', previewRow.customerId)}>Portal</Button>
-            <Button variant="primary" iconRight={<ExternalLink />} onClick={() => navigateTo('invoiceEditor', { invoiceId: previewRow.id })}>Open</Button>
+            <Button variant="primary" iconRight={<ExternalLink />} onClick={() => navigateTo('invoiceEditor', { invoiceId: previewRow.id, returnTo: 'invoices' })}>Open</Button>
           </>
         )}
       >

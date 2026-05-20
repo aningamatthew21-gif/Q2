@@ -4,6 +4,7 @@ const express = require('express');
 const { execute } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
 const { authMiddleware } = require('../middleware/authMiddleware');
+const { can } = require('../../shared/permissions');
 const fs = require('fs');
 const path = require('path');
 
@@ -44,7 +45,20 @@ router.get('/download/:filename', catchAsync(async (req, res) => {
  */
 router.post('/generate/:type', catchAsync(async (req, res) => {
   const { type } = req.params;
-  
+
+  // Per-type permission: each report type carries data that maps to a
+  // different department. Sales reports → sales tier; finance/customer
+  // reports → finance tier; inventory → procurement OR finance.
+  const role = req.user.role;
+  const allowed = {
+    invoices:  can(role, 'reports.run.sales') || can(role, 'reports.run.finance'),
+    customers: can(role, 'reports.run.sales') || can(role, 'reports.run.finance'),
+    inventory: can(role, 'reports.run.procurement') || can(role, 'reports.run.finance')
+  };
+  if (allowed[type] === false) {
+    return res.status(403).json({ success: false, error: `You don't have permission to run the ${type} report.` });
+  }
+
   let result;
   // Dynamic CSV headers and query logic
   if (type === 'invoices') {

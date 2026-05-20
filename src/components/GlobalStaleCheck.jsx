@@ -8,6 +8,14 @@ const GlobalStaleCheck = () => {
     const { userId } = useApp();
     const [staleInvoices, setStaleInvoices] = useState([]);
     const [showStaleModal, setShowStaleModal] = useState(false);
+    // Non-blocking error banner — replaces a browser alert() so we stay in
+    // the Fluent surface. Auto-dismisses after a few seconds.
+    const [actionError, setActionError] = useState(null);
+    useEffect(() => {
+        if (!actionError) return;
+        const t = setTimeout(() => setActionError(null), 4000);
+        return () => clearTimeout(t);
+    }, [actionError]);
 
     useEffect(() => {
         // 1. Only run if user is logged in
@@ -98,18 +106,27 @@ const GlobalStaleCheck = () => {
             }
         } catch (err) {
             console.error("Error updating stale invoice:", err);
-            alert("Could not update invoice. Please try again.");
+            setActionError('Could not update invoice. Please try again.');
         }
     };
 
-    if (!showStaleModal) return null;
+    if (!showStaleModal && !actionError) return null;
 
     return (
-        <StaleInvoiceModal
-            invoices={staleInvoices}
-            onClose={() => setShowStaleModal(false)}
-            onAction={handleStaleAction}
-        />
+        <>
+            {actionError && (
+                <div className="fixed top-16 right-4 z-[60] max-w-sm px-3 py-2 rounded-md bg-red-50 border border-red-200 text-sm text-red-700 shadow-card">
+                    {actionError}
+                </div>
+            )}
+            {showStaleModal && (
+                <StaleInvoiceModal
+                    invoices={staleInvoices}
+                    onClose={() => setShowStaleModal(false)}
+                    onAction={handleStaleAction}
+                />
+            )}
+        </>
     );
 };
 

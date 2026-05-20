@@ -172,7 +172,18 @@ router.post('/', catchAsync(async (req, res) => {
     timestamp, ...extraData
   } = log;
 
-  const finalUserId = userId || req.user.email;
+  // SECURITY — always use the authenticated user as the actor. A client-
+  // supplied `userId` is IGNORED here; otherwise any logged-in user could
+  // forge audit entries attributed to anyone else (forensic-trail
+  // corruption). The token is the only authority on identity.
+  void userId;
+  const finalUserId = req.user.email;
+
+  // Whitelist severity / outcome so a client can't write `severity:'<script>'`
+  const allowedSeverity = ['info', 'warning', 'critical', 'success'];
+  const allowedOutcome  = ['success', 'failure', 'partial'];
+  const safeSeverity = allowedSeverity.includes(severity) ? severity : 'info';
+  const safeOutcome  = allowedOutcome.includes(outcome)   ? outcome  : 'success';
   const extraDataStr = Object.keys(extraData).length > 0
     ? JSON.stringify(extraData).substring(0, 3900)
     : null;
@@ -195,8 +206,8 @@ router.post('/', catchAsync(async (req, res) => {
     ext_data: extraDataStr,
     e_type: entityType || null,
     e_id: entityId ? String(entityId) : null,
-    sev: severity || 'info',
-    u_out: outcome || 'success',
+    sev: safeSeverity,
+    u_out: safeOutcome,
     ip_addr: ipAddress
   });
 

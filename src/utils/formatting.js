@@ -1,7 +1,9 @@
 export const formatCurrency = (currency, amount) => {
 
-    if (currency === null || currency === undefined) {
+    if (!currency || typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency.trim())) {
         currency = 'GHS';
+    } else {
+        currency = currency.trim();
     }
 
     const numAmount = Number(amount);

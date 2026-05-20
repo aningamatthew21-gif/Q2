@@ -394,6 +394,16 @@ html.dark thead.sticky th {
 }
 .v2-fade-up { animation: v2-fade-up 0.24s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
+/* LED-strip flicker — used on the cinematic login card's top status
+   strip while the scanner is "searching" (otp_requested / otp_pending).
+   A two-step opacity stutter reads as an electronic scanner thinking,
+   not a smooth fade. */
+@keyframes v2-led-flicker {
+  0%   { opacity: 1;    }
+  50%  { opacity: 0.45; }
+  100% { opacity: 0.9;  }
+}
+
 /* Soft accent gradient sweep — used on KPI tile hover for a Fluent-y feel. */
 @keyframes v2-sweep {
   0%   { background-position: -120% 0; }

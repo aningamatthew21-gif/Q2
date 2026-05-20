@@ -6,6 +6,7 @@ const INPUT_CLASS = 'mt-1 w-full p-2 border border-line rounded-card focus:ring-
 const LABEL_CLASS = 'text-sm font-medium text-ink-muted';
 
 const VendorModal = ({ vendor, onSave, onClose }) => {
+    const [validationError, setValidationError] = useState(null);
     const [formData, setFormData] = useState(vendor || {
         name: '',
         contactPerson: '',
@@ -30,9 +31,10 @@ const VendorModal = ({ vendor, onSave, onClose }) => {
 
     const handleSave = () => {
         if (!formData.name?.trim()) {
-            alert('Vendor name is required.');
+            setValidationError('Vendor name is required.');
             return;
         }
+        setValidationError(null);
         onSave({ ...formData, id: vendor?.id });
     };
 
@@ -51,6 +53,11 @@ const VendorModal = ({ vendor, onSave, onClose }) => {
             size="lg"
             footer={footer}
         >
+            {validationError && (
+                <div className="mb-3 p-2.5 rounded-md bg-red-50 border border-red-200 text-sm text-red-700">
+                    {validationError}
+                </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                     <label className={LABEL_CLASS}>Vendor Name *</label>

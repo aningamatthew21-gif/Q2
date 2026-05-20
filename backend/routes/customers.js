@@ -1,9 +1,9 @@
 'use strict';
 
 const express = require('express');
-const { execute } = require('../db');
+const { execute, transaction } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, requirePermission } = require('../middleware/authMiddleware');
 const { emitToAll } = require('../utils/socketEmitter');
 
 const router = express.Router();
@@ -41,6 +41,18 @@ router.get('/', catchAsync(async (req, res) => {
  */
 router.get('/:id', catchAsync(async (req, res) => {
   const { id } = req.params;
+
+  // SCOPE — a `customer` role can only fetch their OWN record. Internal
+  // staff (anyone with `customer.read`) can fetch any. Without this, a
+  // customer JWT could enumerate every customer in the system by id.
+  // Customer.uid is mirrored from their email per the auth flow.
+  if (req.user.role === 'customer') {
+    const me = String(req.user.email || '').toLowerCase();
+    if (String(id).toLowerCase() !== me && String(req.user.uid || '').toLowerCase() !== String(id).toLowerCase()) {
+      return res.status(404).json({ success: false, error: 'Customer not found' });
+    }
+  }
+
   const result = await execute('SELECT * FROM QA_CUSTOMERS WHERE CUSTOMER_ID = :id', { id });
 
   if (!result.rows || result.rows.length === 0) {
@@ -69,7 +81,7 @@ router.get('/:id', catchAsync(async (req, res) => {
  * POST /api/customers
  * Create a new customer
  */
-router.post('/', catchAsync(async (req, res) => {
+router.post('/', requirePermission('customer.write'), catchAsync(async (req, res) => {
   const cust = req.body;
   if (!cust.id || !cust.name) {
     return res.status(400).json({ success: false, error: 'id and name are required' });
@@ -102,10 +114,93 @@ router.post('/', catchAsync(async (req, res) => {
 }));
 
 /**
+ * POST /api/customers/bulk
+ *
+ * Bulk upsert for CSV imports. MERGEs every row inside a SINGLE
+ * transaction on ONE pooled connection, then emits `customers:updated`
+ * exactly ONCE for the whole batch.
+ *
+ * Replaces the old client-side pattern of one POST per row — for a
+ * 1000-line import that was 1000 HTTP round-trips AND 1000 socket
+ * broadcasts, each making every client refetch the whole customer list.
+ */
+router.post('/bulk', requirePermission('customer.write'), catchAsync(async (req, res) => {
+  const items = Array.isArray(req.body && req.body.items) ? req.body.items : null;
+  if (!items || items.length === 0) {
+    return res.status(400).json({ success: false, error: 'items array is required' });
+  }
+  if (items.length > 5000) {
+    return res.status(413).json({
+      success: false,
+      error: 'Too many items in one request (max 5000). Split into smaller batches.'
+    });
+  }
+
+  const MERGE_SQL = `
+    MERGE INTO QA_CUSTOMERS t
+    USING (SELECT :id AS CUSTOMER_ID FROM DUAL) s
+    ON (t.CUSTOMER_ID = s.CUSTOMER_ID)
+    WHEN MATCHED THEN UPDATE SET
+      CUSTOMER_NAME = :name, CONTACT_PERSON = :cp, CONTACT_EMAIL = :ce,
+      LOCATION = :loc, PO_BOX = :po, REGION = :reg, ADDRESS = :addr,
+      NOTES = :notes, CUSTOMER_SINCE = :sinc, UPDATED_AT = SYSTIMESTAMP
+    WHEN NOT MATCHED THEN INSERT (
+      CUSTOMER_ID, CUSTOMER_NAME, CONTACT_PERSON, CONTACT_EMAIL,
+      LOCATION, PO_BOX, REGION, ADDRESS, NOTES, CUSTOMER_SINCE
+    ) VALUES (
+      :id, :name, :cp, :ce, :loc, :po, :reg, :addr, :notes, :sinc
+    )
+  `;
+
+  let processed = 0;
+  const errors = [];
+
+  await transaction(async (conn) => {
+    for (let i = 0; i < items.length; i++) {
+      const c = items[i];
+      if (!c || !c.id || !c.name) {
+        errors.push({ index: i, error: 'missing id or name' });
+        continue;
+      }
+      try {
+        await conn.execute(MERGE_SQL, {
+          id:    String(c.id),
+          name:  c.name,
+          cp:    c.contactPerson || null,
+          ce:    c.contactEmail || null,
+          loc:   c.location || null,
+          po:    c.poBox || null,
+          reg:   c.region || null,
+          addr:  c.address || null,
+          notes: c.notes || null,
+          sinc:  c.customerSince || null
+        }, { autoCommit: false });
+        processed++;
+      } catch (err) {
+        errors.push({ index: i, id: c.id, error: err.message });
+      }
+    }
+  });
+
+  // ONE broadcast for the whole batch — not one per row.
+  emitToAll('customers:updated');
+
+  res.json({
+    success: true,
+    data: {
+      processed,
+      failed: errors.length,
+      total: items.length,
+      errors: errors.slice(0, 50)
+    }
+  });
+}));
+
+/**
  * PUT /api/customers/:id
  * Update an existing customer (merge patch)
  */
-router.put('/:id', catchAsync(async (req, res) => {
+router.put('/:id', requirePermission('customer.write'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const cust = req.body;
 
@@ -146,10 +241,10 @@ router.put('/:id', catchAsync(async (req, res) => {
  * DELETE /api/customers/:id
  * Delete a customer
  */
-router.delete('/:id', catchAsync(async (req, res) => {
+router.delete('/:id', requirePermission('customer.write'), catchAsync(async (req, res) => {
   const { id } = req.params;
-  
-  // Enforce referential integrity checks here if needed, 
+
+  // Enforce referential integrity checks here if needed,
   // or let Oracle throw a foreign key violation (handled by errorHandler)
   await execute('DELETE FROM QA_CUSTOMERS WHERE CUSTOMER_ID = :id', { id });
   

@@ -147,6 +147,7 @@ export const ACTIONS = Object.freeze({
   'rfq.approve.award':           'Approve the recommended award (procurement head)',
   'rfq.reject':                  'Reject the recommendation, send back',
   'rfq.cancel':                  'Cancel an RFQ',
+  'rfq.escalate':                'Flag an RFQ for escalation (stalled / urgent)',
 
   // ── Master data ────────────────────────────────────────────
   'customer.read':               'View customers',
@@ -176,12 +177,16 @@ export const ACTIONS = Object.freeze({
   'reports.run.sales':           'Run / export sales reports',
   'reports.run.finance':         'Run / export finance reports',
   'reports.run.procurement':     'Run / export procurement reports',
+  'procurement.settings.read':   'View procurement thresholds / approvals',
   'procurement.settings.edit':   'Edit procurement thresholds / approvals',
+  'targets.read':                'View sales / department performance targets',
+  'targets.edit':                'Set / update performance targets',
 
   // ── System / admin ─────────────────────────────────────────
   'user.manage':                 'Provision / promote / deactivate users',
   'user.impersonate':            'Act-as another user (audited)',
   'system.act_as_emergency':     'Emergency override (double-audited)',
+  'system.invoice_counter.edit': 'Mint next invoice number (auto-increment on approval) or admin reset',
 
   // ── Customer portal ────────────────────────────────────────
   'portal.read.own':             'View my own customer portal',
@@ -210,6 +215,10 @@ const FINANCE_OFFICER_ACTIONS = [
   'pricing.read',      'pricing.write',
   'tax.read',
   'fx.read',           'fx.edit',
+  // Targets — finance officers see departmental targets for reporting
+  'targets.read',
+  // Finance officers also approve invoice pricing, which mints permanent IDs
+  'system.invoice_counter.edit',
   // Audit (own scope)
   'audit.read.own',
   'reports.run.finance'             // RO export
@@ -228,9 +237,14 @@ const FINANCE_HEAD_ACTIONS = [
   // Visibility across all departments (per the design)
   'pr.read',
   'rfq.read',
+  'rfq.escalate',                   // can flag a stalled procurement workflow
+  'procurement.settings.read',      // cross-dept visibility (preserves prior behaviour)
+  'procurement.settings.edit',      // finance head historically could edit thresholds
   'audit.read.all',
   'reports.run.sales',
   'reports.run.procurement',
+  // Targets — heads set departmental targets
+  'targets.edit',
   // Signatures
   'signature.manage'
 ];
@@ -246,6 +260,8 @@ const SALES_OFFICER_ACTIONS = [
   'inventory.read',
   'pricing.read',
   'fx.read',
+  // Targets — officers see their own / team targets
+  'targets.read',
   'audit.read.own',
   'reports.run.sales'
 ];
@@ -256,6 +272,9 @@ const SALES_HEAD_ACTIONS = [
   'invoice.approve.sales',
   'invoice.reject.sales',
   'invoice.reapprove',
+  // Targets — heads set targets for their team
+  'targets.edit',
+  'system.invoice_counter.edit',    // sales-head approval mints the permanent invoice ID
   'audit.read.department',
   'signature.manage'
 ];
@@ -264,12 +283,13 @@ const PROCUREMENT_OFFICER_ACTIONS = [
   'dashboard.procurement.read',
   'pr.read', 'pr.create', 'pr.cancel', 'pr.fulfill',
   'rfq.read', 'rfq.create', 'rfq.send', 'rfq.response.log', 'rfq.recommend',
+  'rfq.escalate',                   // officers can flag stalled RFQs upward
   'vendor.read', 'vendor.write',
   'customer.read',
   'inventory.read',
   'audit.read.own',
   'reports.run.procurement',
-  'procurement.settings.edit'
+  'procurement.settings.read'       // officers READ settings; head/admin EDIT (tax.read/edit pattern)
 ];
 
 const PROCUREMENT_HEAD_ACTIONS = [
@@ -278,6 +298,7 @@ const PROCUREMENT_HEAD_ACTIONS = [
   'rfq.reject',
   'rfq.cancel',
   'vendor.deactivate',
+  'procurement.settings.edit',      // head/admin only — officer can read but not edit thresholds
   'audit.read.department',
   'signature.manage'
 ];
@@ -341,7 +362,13 @@ export const PAGE_PERMISSIONS = Object.freeze({
 
   // Public — no gate
   login:                        null,
-  customerPortal:               'portal.read.own'
+  // customerPortal is dual-purpose: customers open it to view THEIR portal,
+  // and internal staff (support, admin) need to open it to debug / co-browse
+  // on behalf of a customer. Setting this to `null` keeps the page open to
+  // every authenticated user — actual record-level access is enforced by
+  // the customer-scope check on GET /api/customers/:id (a `customer` role
+  // can only see their own record; internal staff can see any).
+  customerPortal:               null
 });
 
 // ── Separation of duties ──────────────────────────────────────────────────

@@ -12,6 +12,12 @@ const {
 } = require('../middleware/authMiddleware');
 const { can } = require('../../shared/permissions');
 const { emitToAll } = require('../utils/socketEmitter');
+const { notify } = require('../services/notificationService');
+
+/** Compact money string for notification bodies. */
+function money(currency, amount) {
+  return `${currency || 'GHS'} ${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -34,6 +40,17 @@ router.get('/', catchAsync(async (req, res) => {
 
   let sql = 'SELECT * FROM QA_INVOICES WHERE 1=1';
   const binds = {};
+
+  // SCOPE FILTER — a user without `invoice.read.all` (e.g. a sales_officer
+  // who only has `invoice.read.own`) must NEVER receive invoices they
+  // didn't create. The catalogue says officers are scoped to "own"; this
+  // line enforces it at the SQL boundary so a crafted GET can't widen the
+  // result. Server-side filter takes precedence over any client createdBy
+  // param to prevent scope-widening via query string.
+  if (!can(req.user.role, 'invoice.read.all')) {
+    sql += ' AND LOWER(CREATED_BY) = LOWER(:me)';
+    binds.me = req.user.email;
+  }
 
   // Support single or multiple statuses (array or comma-separated string)
   if (status) {
@@ -130,6 +147,7 @@ router.get('/', catchAsync(async (req, res) => {
       taxes: row.TAXES,
       taxBreakdown: safeParse(row.TAX_BREAKDOWN, []),
       status: row.STATUS,
+      rowVersion: Number(row.ROW_VERSION || 1),  // optimistic-concurrency token (mirror /:id detail)
       amountPaid: row.AMOUNT_PAID,
       balanceDue: row.BALANCE_DUE,
       rejectionReason: row.REJECTION_REASON,
@@ -194,13 +212,29 @@ router.get('/', catchAsync(async (req, res) => {
  */
 router.get('/:id', catchAsync(async (req, res) => {
   const { id } = req.params;
-  
+
   const result = await execute('SELECT * FROM QA_INVOICES WHERE INVOICE_ID = :id', { id });
   if (!result.rows || result.rows.length === 0) {
     return res.status(404).json({ success: false, error: 'Invoice not found' });
   }
 
   const row = result.rows[0];
+
+  // OWNERSHIP CHECK — a user without `invoice.read.all` can only fetch
+  // invoices they created or are assigned as the salesperson on. Without
+  // this, any authenticated user could enumerate every invoice by id.
+  // Customers calling from the portal use a separate code path
+  // (portal.read.own) and are not allowed here at all.
+  if (!can(req.user.role, 'invoice.read.all')) {
+    const me = String(req.user.email || '').toLowerCase();
+    const createdBy   = String(row.CREATED_BY || '').toLowerCase();
+    const salesperson = String(row.SALESPERSON_ID || '').toLowerCase();
+    if (me !== createdBy && me !== salesperson) {
+      // Return 404 (not 403) so attackers can't probe for the existence
+      // of invoices outside their scope.
+      return res.status(404).json({ success: false, error: 'Invoice not found' });
+    }
+  }
 
   const liRes = await execute(
     'SELECT * FROM QA_INVOICE_LINE_ITEMS WHERE INVOICE_ID = :id ORDER BY SORT_ORDER, LINE_ID',
@@ -228,6 +262,10 @@ router.get('/:id', catchAsync(async (req, res) => {
     taxes: row.TAXES,
     taxBreakdown: safeParse(row.TAX_BREAKDOWN, []),
     status: row.STATUS,
+    // Optimistic-concurrency token. Clients MUST echo this back on PUT to
+    // claim "I'm editing the version I saw"; a mismatch returns 409 so the
+    // loser knows to reload and merge.
+    rowVersion: Number(row.ROW_VERSION || 1),
     amountPaid: row.AMOUNT_PAID,
     balanceDue: row.BALANCE_DUE,
     rejectionReason: row.REJECTION_REASON,
@@ -291,7 +329,7 @@ router.get('/:id', catchAsync(async (req, res) => {
  * POST /api/invoices
  * Deep insert of invoice + line items
  */
-router.post('/', catchAsync(async (req, res) => {
+router.post('/', requirePermission('quote.create'), catchAsync(async (req, res) => {
   const inv = req.body;
   if (!inv.id) inv.id = crypto.randomUUID(); // Fallback if front-end didn't generate one
 
@@ -520,6 +558,18 @@ router.post('/', catchAsync(async (req, res) => {
   emitToAll('invoices:updated');
   if (prDrafts.length > 0) {
     emitToAll('pr:updated');
+
+    // New sourcing work just landed for procurement — tell the desk.
+    notify({
+      to: { departments: ['procurement'], excludeActor: true },
+      actor: req.user.email,
+      type: 'pr.created', category: 'procurement', severity: 'info',
+      title: `${prDrafts.length} new purchase requisition${prDrafts.length > 1 ? 's' : ''}`,
+      body: `Invoice ${inv.id} for ${inv.customerName || 'a customer'} created ${prDrafts.length} PR${prDrafts.length > 1 ? 's' : ''} that need sourcing.`,
+      entityType: 'invoice', entityId: inv.id,
+      linkPage: 'purchaseRequisitions', linkContext: {},
+      groupKey: `invoice:${inv.id}:prs_created`
+    });
   }
   res.json({
     success: true,
@@ -544,10 +594,15 @@ router.put('/:id', catchAsync(async (req, res) => {
   // balance) skip these gates because they're scoped by the page-level
   // permission. For status changes we load the current invoice once and
   // run both the permission check AND the matching SoD invariant.
+  // Captured inside the status-change block, consumed AFTER the UPDATE
+  // commits to fan out notifications (see the dispatch block below).
+  let notifyCtx = null;
+
   if (updates.status !== undefined) {
     const cur = await execute(
       `SELECT STATUS, CREATED_BY, SALESPERSON_ID, APPROVED_BY, REJECTED_BY,
-              CUSTOMER_ACTION_AT, SUBMITTED_AT
+              CUSTOMER_ACTION_AT, SUBMITTED_AT, SOURCING_STATUS,
+              CUSTOMER_NAME, TOTAL, CURRENCY
          FROM QA_INVOICES WHERE INVOICE_ID = :id`,
       { id }
     );
@@ -562,12 +617,45 @@ router.put('/:id', catchAsync(async (req, res) => {
       sentBy:         row.APPROVED_BY    // who sent it to the customer = last approver
     };
 
+    notifyCtx = {
+      prevStatus,
+      newStatus,
+      createdBy:     row.CREATED_BY,
+      salesPersonId: row.SALESPERSON_ID,
+      customerName:  row.CUSTOMER_NAME || 'the customer',
+      total:        row.TOTAL,
+      currency:     row.CURRENCY
+    };
+
     // Sales-side approval: invoice is moving from Pending Approval → Approved.
     if (newStatus === 'Approved' && prevStatus === 'Pending Approval') {
-      if (!can(req.user.role, 'invoice.approve.sales') && !can(req.user.role, 'invoice.approve.finance')) {
+      // ── Sourcing gate ────────────────────────────────────────────────
+      // A quote whose procurement isn't finished still carries placeholder
+      // prices on its sourced lines — the real cost only lands when the RFQ
+      // is AWARDED and pushed back (which flips SOURCING_STATUS to COMPLETE).
+      // Approving before that would sign off a total that isn't real, so we
+      // block it server-side regardless of what the UI allowed. Rejection
+      // stays available. 409 = the resource's state forbids this action.
+      const ss = row.SOURCING_STATUS;
+      if (ss === 'PENDING' || ss === 'PARTIAL') {
+        return res.status(409).json({
+          success: false,
+          error: 'This quote is still being sourced by procurement. It can be approved only after sourcing completes and the RFQ has been awarded.'
+        });
+      }
+      const canSales   = can(req.user.role, 'invoice.approve.sales');
+      const canFinance = can(req.user.role, 'invoice.approve.finance');
+      if (!canSales && !canFinance) {
         return res.status(403).json({ success: false, error: "You don't have permission to approve this invoice." });
       }
-      const sodErr = sodCheckRunner('invoice.approve.sales')(req.user, entity);
+      // Run the SoD rule that MATCHES the approver's actual permission.
+      // Previously this always called the sales rule, which worked only by
+      // accident because the two rules happened to be identical. Calling
+      // the right one means future divergence (e.g. finance gains an
+      // additional check) lands correctly. Admins can hold both perms; we
+      // prefer the more specific finance rule when present.
+      const sodKey = canFinance ? 'invoice.approve.finance' : 'invoice.approve.sales';
+      const sodErr = sodCheckRunner(sodKey)(req.user, entity);
       if (sodErr) return res.status(403).json({ success: false, error: sodErr });
     }
     // Rejection of either side.
@@ -628,10 +716,145 @@ router.put('/:id', catchAsync(async (req, res) => {
     sqlSets.push('CUSTOMER_ACTION_AT = SYSTIMESTAMP');
   }
 
+  // Capture so we can emit an inventory-update broadcast iff the approval
+  // path actually decremented stock (avoids needless refetches elsewhere).
+  let stockChanged = false;
+
   if (sqlSets.length > 0) {
     sqlSets.push('UPDATED_AT = SYSTIMESTAMP');
-    const sql = `UPDATE QA_INVOICES SET ${sqlSets.join(', ')} WHERE INVOICE_ID = :id`;
-    await execute(sql, binds);
+
+    // ── Optimistic concurrency control ───────────────────────────────
+    // When the client supplies `rowVersion` (which they get from any
+    // GET /invoices/:id response), the UPDATE clauses gain a version
+    // match and the column is incremented on success. A 0-row result
+    // means somebody else changed the invoice since the client loaded
+    // it — we return 409 so the UI can prompt for reload instead of
+    // silently overwriting the other user's edits.
+    //
+    // Backward-compatible: a client that omits rowVersion gets the
+    // legacy last-write-wins behaviour (with a warning log so we can
+    // spot un-migrated callers).
+    const expectedRv = (updates.rowVersion !== undefined && updates.rowVersion !== null)
+      ? Number(updates.rowVersion)
+      : null;
+    if (expectedRv === null) {
+      console.warn(`[invoices PUT ${id}] no rowVersion supplied — concurrency check skipped`);
+    }
+
+    const setsForSql = [...sqlSets];
+    if (expectedRv !== null) setsForSql.push('ROW_VERSION = ROW_VERSION + 1');
+
+    const whereParts = ['INVOICE_ID = :id'];
+    const updateBinds = { ...binds };
+    if (expectedRv !== null) {
+      whereParts.push('ROW_VERSION = :expectedRv');
+      updateBinds.expectedRv = expectedRv;
+    }
+    const updateSql = `UPDATE QA_INVOICES SET ${setsForSql.join(', ')} WHERE ${whereParts.join(' AND ')}`;
+
+    // Sales-side approval is the one transition that must atomically
+    // decrement physical inventory. Previously the frontend did this as
+    // a separate GET-then-PUT loop after a successful PUT, which is a
+    // textbook lost-update race: two concurrent approvals for the same
+    // SKU both read the same stock value and both wrote it back, leaving
+    // the warehouse silently oversold. Doing it server-side inside one
+    // transaction kills that race — either both the status change AND
+    // every stock decrement succeed, or nothing changes.
+    const isApproval = updates.status === 'Approved'
+                    && notifyCtx
+                    && notifyCtx.prevStatus === 'Pending Approval';
+
+    try {
+      if (isApproval) {
+        await transaction(async (conn) => {
+          // 1. Load line items
+          const liRes = await conn.execute(
+            `SELECT SKU, QUANTITY FROM QA_INVOICE_LINE_ITEMS WHERE INVOICE_ID = :id`,
+            { id },
+            { outFormat: 4002 }
+          );
+
+          // 2. Atomically decrement each SKU. The conditional WHERE
+          //    (`STOCK >= :qty`) is the lock-free way to detect a
+          //    shortage — Oracle does the read-and-write in a single
+          //    atomic statement, so two concurrent approvers can't both
+          //    "win" with stale snapshots.
+          for (const li of (liRes.rows || [])) {
+            const sku = li.SKU;
+            const qty = Number(li.QUANTITY) || 0;
+            if (!sku || qty <= 0) continue;
+
+            const dec = await conn.execute(
+              `UPDATE QA_INVENTORY
+                  SET STOCK = STOCK - :qty,
+                      UPDATED_AT = SYSTIMESTAMP,
+                      UPDATED_BY = :uby
+                WHERE SKU = :sku AND STOCK >= :qty`,
+              { sku, qty, uby: req.user.email },
+              { autoCommit: false }
+            );
+            if ((dec.rowsAffected || 0) === 0) {
+              // Did the SKU exist at all? Custom / sourced items aren't
+              // in QA_INVENTORY by design — those skip cleanly. A real
+              // SKU with insufficient stock fails the whole approval.
+              const exists = await conn.execute(
+                `SELECT STOCK, ITEM_NAME FROM QA_INVENTORY WHERE SKU = :sku`,
+                { sku },
+                { outFormat: 4002 }
+              );
+              if (exists.rows && exists.rows.length > 0) {
+                const have = exists.rows[0].STOCK;
+                const name = exists.rows[0].ITEM_NAME || sku;
+                const e = new Error(
+                  `Insufficient stock for ${name} (${sku}): need ${qty}, have ${have}.`
+                );
+                e.code = 'INSUFFICIENT_STOCK';
+                throw e;
+              }
+              // SKU not in inventory table — custom / sourced item, OK.
+            } else {
+              stockChanged = true;
+            }
+          }
+
+          // 3. Update the invoice itself (status, signature, etc.)
+          const upd = await conn.execute(updateSql, updateBinds, { autoCommit: false });
+          if ((upd.rowsAffected || 0) === 0) {
+            const e = new Error(expectedRv !== null
+              ? 'This invoice was modified by another user. Reload and try again.'
+              : 'Invoice not found.');
+            e.code = expectedRv !== null ? 'VERSION_MISMATCH' : 'NOT_FOUND';
+            throw e;
+          }
+        });
+      } else {
+        // Non-approval update — single statement is enough. Still
+        // version-checked when rowVersion was supplied.
+        const upd = await execute(updateSql, updateBinds);
+        if ((upd.rowsAffected || 0) === 0) {
+          if (expectedRv !== null) {
+            return res.status(409).json({
+              success: false,
+              code: 'VERSION_MISMATCH',
+              error: 'This invoice was modified by another user. Reload and try again.'
+            });
+          }
+          // No version supplied + 0 rows = invoice doesn't exist.
+          return res.status(404).json({ success: false, error: 'Invoice not found.' });
+        }
+      }
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_STOCK') {
+        return res.status(409).json({ success: false, code: 'INSUFFICIENT_STOCK', error: err.message });
+      }
+      if (err.code === 'VERSION_MISMATCH') {
+        return res.status(409).json({ success: false, code: 'VERSION_MISMATCH', error: err.message });
+      }
+      if (err.code === 'NOT_FOUND') {
+        return res.status(404).json({ success: false, error: err.message });
+      }
+      throw err;
+    }
   }
 
   // If there's a new payment, insert it
@@ -650,6 +873,78 @@ router.put('/:id', catchAsync(async (req, res) => {
   }
 
   emitToAll('invoices:updated');
+  // Server-side stock decrement happened atomically above, so refresh
+  // every connected client's inventory snapshot too.
+  if (stockChanged) emitToAll('inventory:updated');
+
+  // ── Notifications ────────────────────────────────────────────────────
+  // Fan a status change out to the people who need to know. Fire-and-forget
+  // — notify() never throws, so this can't affect the response above.
+  if (notifyCtx && sqlSets.length > 0) {
+    const c = notifyCtx;
+    const actor = req.user.email;
+    const link = { invoiceId: id };
+
+    if (c.newStatus === 'Pending Approval') {
+      notify({
+        to: { roles: ['finance_head'], excludeActor: true },
+        actor, type: 'invoice.pending_approval', category: 'invoices', severity: 'warning',
+        title: 'Invoice awaiting your approval',
+        body: `${id} for ${c.customerName} (${money(c.currency, c.total)}) was submitted and needs finance approval.`,
+        entityType: 'invoice', entityId: id,
+        linkPage: 'invoiceEditor', linkContext: { ...link, returnTo: 'invoices' },
+        groupKey: `invoice:${id}:pending_approval`
+      });
+    } else if (c.newStatus === 'Approved') {
+      notify({
+        to: { users: [c.createdBy, c.salesPersonId], excludeActor: true },
+        actor, type: 'invoice.approved', category: 'invoices', severity: 'success',
+        title: 'Invoice approved',
+        body: `${id} for ${c.customerName} (${money(c.currency, c.total)}) was approved by ${actor}.`,
+        entityType: 'invoice', entityId: id,
+        linkPage: 'invoiceEditor', linkContext: { ...link, returnTo: 'myInvoices' }
+      });
+    } else if (c.newStatus === 'Rejected') {
+      const reason = updates.rejectionReason ? ` Reason: "${String(updates.rejectionReason).slice(0, 300)}"` : '';
+      notify({
+        to: { users: [c.createdBy, c.salesPersonId], excludeActor: true },
+        actor, type: 'invoice.rejected', category: 'invoices', severity: 'warning',
+        title: 'Invoice rejected',
+        body: `${id} for ${c.customerName} was rejected by ${actor}.${reason}`,
+        entityType: 'invoice', entityId: id,
+        linkPage: 'invoiceEditor', linkContext: { ...link, returnTo: 'myInvoices' }
+      });
+    } else if (c.newStatus === 'Customer Accepted') {
+      notify({
+        to: { users: [c.createdBy, c.salesPersonId], roles: ['sales_head'], excludeActor: true },
+        actor, type: 'invoice.customer_accepted', category: 'invoices', severity: 'success',
+        title: 'Customer accepted invoice',
+        body: `${c.customerName} accepted ${id} (${money(c.currency, c.total)}).`,
+        entityType: 'invoice', entityId: id,
+        linkPage: 'invoiceEditor', linkContext: { ...link, returnTo: 'myInvoices' }
+      });
+    } else if (c.newStatus === 'Customer Rejected') {
+      notify({
+        to: { users: [c.createdBy, c.salesPersonId], roles: ['sales_head'], excludeActor: true },
+        actor, type: 'invoice.customer_rejected', category: 'invoices', severity: 'warning',
+        title: 'Customer rejected invoice',
+        body: `${c.customerName} declined ${id} (${money(c.currency, c.total)}).`,
+        entityType: 'invoice', entityId: id,
+        linkPage: 'invoiceEditor', linkContext: { ...link, returnTo: 'myInvoices' }
+      });
+    } else if (c.newStatus === 'Paid' || c.newStatus === 'Partially Paid') {
+      notify({
+        to: { roles: ['finance_head'], users: [c.createdBy, c.salesPersonId], excludeActor: true },
+        actor, type: 'invoice.paid', category: 'finance',
+        severity: c.newStatus === 'Paid' ? 'success' : 'info',
+        title: c.newStatus === 'Paid' ? 'Invoice marked paid' : 'Invoice partially paid',
+        body: `${id} for ${c.customerName} was marked ${c.newStatus.toLowerCase()} by ${actor}.`,
+        entityType: 'invoice', entityId: id,
+        linkPage: 'invoiceEditor', linkContext: { ...link, returnTo: 'invoices' }
+      });
+    }
+  }
+
   res.json({ success: true });
 }));
 
@@ -679,7 +974,7 @@ router.delete('/:id', requireRole('controller', 'admin'), catchAsync(async (req,
  * (they may choose to cancel the customer quote outright rather than send the
  * new cost-loaded total).
  */
-router.post('/:id/reapprove', catchAsync(async (req, res) => {
+router.post('/:id/reapprove', requirePermission('invoice.reapprove'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { decision = 'accept', note } = req.body || {};
 

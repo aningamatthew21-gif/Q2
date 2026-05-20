@@ -4,7 +4,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { execute } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
-const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
+const { authMiddleware, requirePermission } = require('../middleware/authMiddleware');
 const { emitToAll } = require('../utils/socketEmitter');
 
 const router = express.Router();
@@ -57,7 +57,7 @@ router.get('/:id', catchAsync(async (req, res) => {
  * POST /api/vendors
  * Create vendor — procurement, controller, or admin
  */
-router.post('/', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/', requirePermission('vendor.write'), catchAsync(async (req, res) => {
   const v = req.body || {};
   if (!v.name) {
     return res.status(400).json({ success: false, error: 'name is required' });
@@ -97,7 +97,7 @@ router.post('/', requireRole('procurement', 'controller', 'admin'), catchAsync(a
  * PUT /api/vendors/:id
  * Audit-logs a before/after diff of the fields that actually changed (M4).
  */
-router.put('/:id', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.put('/:id', requirePermission('vendor.write'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const v = req.body || {};
 
@@ -180,7 +180,7 @@ router.put('/:id', requireRole('procurement', 'controller', 'admin'), catchAsync
  * DELETE /api/vendors/:id
  * Soft delete — mark as inactive. Only controller/admin.
  */
-router.delete('/:id', requireRole('controller', 'admin'), catchAsync(async (req, res) => {
+router.delete('/:id', requirePermission('vendor.deactivate'), catchAsync(async (req, res) => {
   const { id } = req.params;
   await execute(
     `UPDATE QA_VENDORS SET STATUS = 'inactive', UPDATED_AT = SYSTIMESTAMP, UPDATED_BY = :ub WHERE VENDOR_ID = :id`,

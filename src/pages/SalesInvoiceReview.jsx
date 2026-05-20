@@ -8,6 +8,7 @@ import { logActivity } from '../utils/logger';
 import { generatePermanentId, getNextSequenceNumber } from '../utils/helpers';
 import ReApprovalBanner from '../components/invoices/ReApprovalBanner';
 import { useApp } from '../context/AppContext';
+import { can } from '../utils/permissions';
 
 const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
     const { appUser } = useApp();
@@ -235,6 +236,21 @@ const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
         return converted;
     }, [invoice]);
 
+    // ── Separation-of-duties pre-check ──────────────────────────────────
+    // The backend's `invoice.approve.sales` rule (shared/permissions.js)
+    // refuses to let the head approve a quote they themselves created or
+    // are assigned to as the salesperson. Without surfacing that here the
+    // Approve button looked enabled, the user clicked, and the server
+    // returned an opaque 403. Now we detect the same condition client-side
+    // so the button shows the reason BEFORE the click.
+    const isOwnInvoice = useMemo(() => {
+        const me = appUser?.email?.toLowerCase();
+        if (!me || !invoice) return false;
+        const createdBy   = (invoice.createdBy || '').toLowerCase();
+        const salesperson = (invoice.salesPersonId || '').toLowerCase();
+        return me === createdBy || me === salesperson;
+    }, [appUser, invoice]);
+
     const calculatedTotals = useMemo(() => {
         if (!displayInvoice || taxesLoading) return null;
 
@@ -286,8 +302,12 @@ const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
 
             const updateData = {
                 status: newStatus,
+                // Include the rowVersion we loaded so backend's optimistic
+                // lock catches concurrent edits and returns 409 instead of
+                // silently overwriting the other user.
+                ...(invoice?.rowVersion !== undefined ? { rowVersion: invoice.rowVersion } : {})
             };
- 
+
             // Add signature information if approving
             if (newStatus === 'Approved' && selectedSignature) {
                 updateData.signatureData = JSON.stringify(selectedSignature);
@@ -301,21 +321,19 @@ const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
                 // Generate Permanent ID
                 const sequence = await getNextSequenceNumber();
                 updateData.approvedInvoiceId = generatePermanentId(sequence);
-                
-                // Adjust Stock
-                const itemsArray = invoice.items || invoice.lineItems || [];
-                for (const item of itemsArray) {
-                    try {
-                        const invRes = await api.get(`/inventory/${item.id}`);
-                        if (invRes.success && invRes.data) {
-                            const currentStock = invRes.data.stock;
-                            const newStock = currentStock - (item.quantity || 0);
-                            await api.put(`/inventory/${item.id}`, { stock: newStock });
-                        }
-                    } catch (invErr) {
-                        console.warn(`Stock adjustment failed for ${item.id}`, invErr);
-                    }
-                }
+
+                // STOCK DECREMENT IS NOW SERVER-SIDE.
+                // The backend PUT /invoices/:id route atomically decrements
+                // inventory for every line item inside the same transaction
+                // as the status change. The old client-side GET-then-PUT
+                // loop here was a textbook lost-update race: two concurrent
+                // approvals for the same SKU both read the same stock value
+                // and both wrote it back, leaving the warehouse silently
+                // oversold. Removing it eliminates the race.
+                //
+                // If stock is insufficient on the server side, the PUT
+                // below will return 409 with code 'INSUFFICIENT_STOCK',
+                // surfaced to the user by the existing catch block.
             }
  
             const response = await api.put(`/invoices/${invoiceId}`, updateData);
@@ -338,7 +356,12 @@ const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
             console.log('✅ [DEBUG] SalesInvoiceReview: Approval process completed successfully');
         } catch (error) {
             console.error('❌ [ERROR] SalesInvoiceReview: handleApproval failed:', error);
-            setNotification({ type: 'error', message: `Failed to ${newStatus.toLowerCase()} invoice: ${error.message}` });
+            // Surface the SERVER'S actual reason (e.g. SoD violation, sourcing
+            // gate, permission) instead of the opaque axios fallback. The axios
+            // interceptor rejects with the raw error; the structured message
+            // lives at error.response.data.error.
+            const serverMsg = error?.response?.data?.error || error?.message || 'Unknown error';
+            setNotification({ type: 'error', message: `Failed to ${newStatus.toLowerCase()} invoice: ${serverMsg}` });
         }
     };
 
@@ -385,15 +408,36 @@ const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
                     {invoice?.requiresReapproval && (
                         <ReApprovalBanner
                             invoice={invoice}
+                            // Permission-driven canAct. The legacy check `role === 'controller'`
+                            // missed every tiered role (finance_head, sales_head). The right
+                            // semantic here is: anyone with `invoice.reapprove` (sales/finance
+                            // heads + admin) OR the original creator / salesperson can decide
+                            // on the re-approval. Same predicate, but rendered through can()
+                            // so it works under the new role model.
                             canAct={
-                                appUser?.role === 'controller' ||
-                                appUser?.role === 'admin' ||
+                                can(appUser?.role, 'invoice.reapprove') ||
                                 invoice?.salesPersonId === appUser?.email ||
                                 invoice?.createdBy === appUser?.email
                             }
                             onDecision={handleReapprovalDecision}
                             submitting={reapprovalSubmitting}
                         />
+                    )}
+
+                    {/* Separation-of-duties banner. Mirrors the server's SoD rule so
+                        the user sees WHY Approve is disabled before clicking. The
+                        approver must not be the same person who created the quote or
+                        is named as its salesperson — somebody else has to sign it off. */}
+                    {isOwnInvoice && invoice?.status === 'Pending Approval' && (
+                        <div className="bg-amber-50 border-l-4 border-amber-400 rounded-md p-4 mb-6 text-sm text-amber-800 flex items-start gap-2">
+                            <Icon id="lock" className="mt-0.5" />
+                            <div>
+                                <strong>You can't approve this invoice.</strong> Separation of duties — the
+                                approver must not be the user who created the quote or is its assigned
+                                salesperson. Another sales head or an admin needs to approve it. You can
+                                still reject it if there's an issue with the details.
+                            </div>
+                        </div>
                     )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -573,20 +617,24 @@ const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
                                     </button>
                                     <button
                                         onClick={() => handleApproval('Approved')}
-                                        disabled={!selectedSignature || invoice?.requiresReapproval}
-                                        className={`w-full py-3 px-4 text-white rounded-md font-semibold ${selectedSignature && !invoice?.requiresReapproval
+                                        disabled={!selectedSignature || invoice?.requiresReapproval || isOwnInvoice}
+                                        className={`w-full py-3 px-4 text-white rounded-md font-semibold ${selectedSignature && !invoice?.requiresReapproval && !isOwnInvoice
                                             ? 'bg-green-600 hover:bg-green-700'
                                             : 'bg-gray-400 cursor-not-allowed'
                                             }`}
                                         title={
-                                            invoice?.requiresReapproval
-                                                ? 'Resolve the re-approval decision above before approving.'
-                                                : (selectedSignature ? 'Approve with selected signature' : 'Please select a signature first')
+                                            isOwnInvoice
+                                                ? "Separation of duties — you can't approve a quote you created or own. Another sales head or admin must approve it."
+                                                : invoice?.requiresReapproval
+                                                    ? 'Resolve the re-approval decision above before approving.'
+                                                    : (selectedSignature ? 'Approve with selected signature' : 'Please select a signature first')
                                         }
                                     >
-                                        {invoice?.requiresReapproval
-                                            ? 'Re-Approval Required'
-                                            : (selectedSignature ? 'Approve Invoice' : 'Select Signature First')}
+                                        {isOwnInvoice
+                                            ? 'Cannot Approve Own Quote'
+                                            : invoice?.requiresReapproval
+                                                ? 'Re-Approval Required'
+                                                : (selectedSignature ? 'Approve Invoice' : 'Select Signature First')}
                                     </button>
                                 </div>
                             </div>

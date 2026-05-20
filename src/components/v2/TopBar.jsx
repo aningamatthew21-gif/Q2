@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Search, Bell, HelpCircle, Settings, ChevronDown, Menu
+  Search, HelpCircle, Settings, ChevronDown, Menu
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useApp } from '../../context/AppContext';
 import UserSettingsModal from '../common/UserSettingsModal';
+import NotificationBell from './NotificationBell';
 
 /**
  * TopBar — the 48px sticky header that sits above the LeftNav.
@@ -121,7 +122,7 @@ export default function TopBar({ onOpenMobileNav }) {
 
         {/* Right cluster */}
         <div className="flex items-center gap-0.5">
-          <IconButton title="Notifications"><Bell className="w-4 h-4" /></IconButton>
+          <NotificationBell />
           <IconButton title="Help"><HelpCircle className="w-4 h-4" /></IconButton>
           <IconButton title="Settings" onClick={() => setSettingsOpen(true)}>
             <Settings className="w-4 h-4" />
