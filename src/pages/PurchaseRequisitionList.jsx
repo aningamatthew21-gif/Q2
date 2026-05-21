@@ -5,6 +5,7 @@ import Button from '../components/common/Button';
 import { useRealtimePRs } from '../hooks/useRealtimePRs';
 import { useDebounce } from '../hooks/useDebounce';
 import { SortableHeader, useSortable } from '../components/v2';
+import { useApp } from '../context/AppContext';
 
 const STATUS_FILTERS = [
     { id: 'ALL',       label: 'All' },
@@ -72,8 +73,15 @@ const PurchaseRequisitionList = ({ navigateTo, currentUser, pageContext }) => {
     const totalPages = pagination?.totalPages || 1;
     const totalCount = pagination?.total || 0;
 
+    // Per-user assignment awareness — used to flag "your work" rows in the
+    // list. Officers see every PR for team-visibility, but a small "Yours"
+    // pill helps them spot what they actually need to action without
+    // having to read the assignee column for every row.
+    const { userEmail } = useApp();
     const role = currentUser?.role;
-    const backPage = role === 'procurement' ? 'procurementDashboard' : 'controllerDashboard';
+    const backPage = (role === 'procurement_head' || role === 'procurement_officer' || role === 'procurement')
+        ? 'procurementDashboard'
+        : 'controllerDashboard';
 
     return (
         <>
@@ -130,6 +138,7 @@ const PurchaseRequisitionList = ({ navigateTo, currentUser, pageContext }) => {
                                         <th className="p-3 text-center"><SortableHeader label="Reason"  sortKey="reason"       current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
                                         <th className="p-3 text-center"><SortableHeader label="Priority" sortKey="priority"    current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
                                         <th className="p-3 text-center"><SortableHeader label="Status"  sortKey="status"       current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                        <th className="p-3 text-left"><SortableHeader   label="Assigned To" sortKey="assignedTo" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
                                         <th className="p-3 font-semibold text-xs text-gray-500 uppercase"></th>
                                     </tr>
                                 </thead>
@@ -173,6 +182,22 @@ const PurchaseRequisitionList = ({ navigateTo, currentUser, pageContext }) => {
                                                     'bg-gray-100 text-gray-800'
                                                 }`}>{pr.status}</span>
                                             </td>
+                                            <td className="p-3 text-sm text-gray-700">
+                                                {pr.assignedTo ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="truncate max-w-[180px]" title={pr.assignedTo}>
+                                                            {pr.assignedTo.split('@')[0]}
+                                                        </span>
+                                                        {pr.assignedTo === userEmail && (
+                                                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700 uppercase tracking-wide">
+                                                                Yours
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-gray-400 italic">Unassigned</span>
+                                                )}
+                                            </td>
                                             <td className="p-3 text-right">
                                                 <button onClick={() => navigateTo('purchaseRequisitionDetail', pr.id)} className="text-blue-600 text-sm font-medium">Open</button>
                                             </td>
@@ -180,7 +205,7 @@ const PurchaseRequisitionList = ({ navigateTo, currentUser, pageContext }) => {
                                     ))}
                                     {filtered.length === 0 && (
                                         <tr>
-                                            <td colSpan="9" className="p-6 text-center text-gray-500">
+                                            <td colSpan="10" className="p-6 text-center text-gray-500">
                                                 No purchase requisitions match the current filters.
                                             </td>
                                         </tr>

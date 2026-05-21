@@ -6,6 +6,8 @@ const { execute, transaction } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
 const { authMiddleware, requireRole, requirePermission } = require('../middleware/authMiddleware');
 const { emitToAll } = require('../utils/socketEmitter');
+const { can } = require('../../shared/permissions.js');
+const { notify } = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -196,6 +198,38 @@ router.put('/:id', requirePermission('pr.create'), catchAsync(async (req, res) =
   const { id } = req.params;
   const updates = req.body || {};
 
+  // ── Authorization: who can change the ASSIGNED_TO field ─────────────
+  // The base `pr.create` gate is sufficient for editing your own PR (an
+  // officer can update priority/notes on PRs assigned to them). But the
+  // assignment field itself is a supervisory action — only roles with
+  // `pr.assign` (procurement_head, admin) may set it. A 403 here stops
+  // a crafted POST from sidestepping the head's authority. The field is
+  // dropped from the update payload rather than 403-ing the entire
+  // request when other fields are also present and legitimate.
+  let assignmentChange = null; // {from, to} when assignedTo is being modified
+  if (Object.prototype.hasOwnProperty.call(updates, 'assignedTo')) {
+    if (!can(req.user.role, 'pr.assign')) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only the procurement head can assign or reassign a purchase requisition.'
+      });
+    }
+
+    // Snapshot the existing assignee so the audit event can record from→to.
+    const cur = await execute(
+      `SELECT ASSIGNED_TO FROM QA_PURCHASE_REQUISITIONS WHERE PR_ID = :id`,
+      { id }, { outFormat: 4002 }
+    );
+    if (!cur.rows || cur.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Purchase requisition not found.' });
+    }
+    const prevAssignee = cur.rows[0].ASSIGNED_TO || null;
+    const newAssignee  = updates.assignedTo || null;
+    if (prevAssignee !== newAssignee) {
+      assignmentChange = { from: prevAssignee, to: newAssignee };
+    }
+  }
+
   const mappings = {
     status: 'STATUS',
     priority: 'PRIORITY',
@@ -221,6 +255,16 @@ router.put('/:id', requirePermission('pr.create'), catchAsync(async (req, res) =
 
   sets.push('UPDATED_AT = SYSTIMESTAMP');
 
+  // PR number (for notification body) — pull once if we'll need it.
+  let prNumberForNotify = null;
+  if (assignmentChange && assignmentChange.to) {
+    const meta = await execute(
+      `SELECT PR_NUMBER FROM QA_PURCHASE_REQUISITIONS WHERE PR_ID = :id`,
+      { id }, { outFormat: 4002 }
+    );
+    prNumberForNotify = meta.rows?.[0]?.PR_NUMBER || id;
+  }
+
   await transaction(async (conn) => {
     await conn.execute(
       `UPDATE QA_PURCHASE_REQUISITIONS SET ${sets.join(', ')} WHERE PR_ID = :id`,
@@ -230,9 +274,46 @@ router.put('/:id', requirePermission('pr.create'), catchAsync(async (req, res) =
       INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
       VALUES ('PR_UPDATED','PR',:id,:actor,:payload)
     `, { id, actor: req.user.email, payload: JSON.stringify(updates) });
+
+    // Dedicated reassignment event — surfaces clearly in the PR history
+    // panel with explicit from/to addresses, separate from the general
+    // PR_UPDATED noise. Auditors looking for "who reassigned this work
+    // and when" don't have to parse JSON payloads to answer.
+    if (assignmentChange) {
+      await conn.execute(`
+        INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
+        VALUES ('PR_REASSIGNED','PR',:id,:actor,:payload)
+      `, {
+        id,
+        actor: req.user.email,
+        payload: JSON.stringify(assignmentChange)
+      });
+    }
   });
 
   emitToAll('pr:updated');
+
+  // Notify the new assignee — fire-and-forget; never blocks the response.
+  // Only fires on actual change (so a save-without-change doesn't spam).
+  // Excludes the actor (head assigning to themselves doesn't need to
+  // notify themselves) via excludeActor on the notify spec.
+  if (assignmentChange && assignmentChange.to) {
+    notify({
+      to:         { users: [assignmentChange.to], excludeActor: true },
+      actor:      req.user.email,
+      type:       'pr.assigned',
+      title:      `PR ${prNumberForNotify} assigned to you`,
+      body:       `${req.user.email} assigned this purchase requisition to you. Open it from the PR list to begin work.`,
+      severity:   'info',
+      category:   'procurement',
+      entityType: 'PR',
+      entityId:   id,
+      linkPage:   'purchaseRequisitionDetail',
+      linkContext: id,
+      groupKey:   `pr.assigned:${id}`
+    });
+  }
+
   res.json({ success: true });
 }));
 

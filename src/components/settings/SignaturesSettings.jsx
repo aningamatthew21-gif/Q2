@@ -4,8 +4,40 @@ import Icon from '../common/Icon';
 import Notification from '../common/Notification';
 import { useActivityLog } from '../../hooks/useActivityLog';
 import { usePrompt } from '../v2/PromptDialog';
+import { can } from '../../utils/permissions';
 
-const SignaturesSettings = ({ userId }) => {
+const SignaturesSettings = ({ userId, currentUser }) => {
+    // ── Permission gate ───────────────────────────────────────────
+    // Digital signatures are uploaded only by department heads — their
+    // image is the visible stamp on approved invoices, awards, etc.
+    // Officers and other roles approve through the audit trail and don't
+    // need a signature image. Rather than rendering the upload form and
+    // letting the POST 403 with an opaque "Failed to save" toast, we
+    // detect the missing permission up front and render an informational
+    // empty state. The tab itself stays clickable (so the feature's
+    // existence isn't hidden) — only the form is suppressed.
+    if (!can(currentUser, 'signature.manage')) {
+        return (
+            <div className="bg-white p-6 rounded-xl shadow-md max-w-4xl mx-auto">
+                <h2 className="text-xl font-semibold text-gray-700 mb-4">Digital Signature Management</h2>
+                <div className="border border-blue-200 bg-blue-50 rounded-lg p-6 text-sm leading-relaxed text-gray-700">
+                    <h3 className="text-base font-semibold text-gray-800 mb-3">
+                        Signatures are managed by department heads.
+                    </h3>
+                    <p className="mb-3">
+                        Digital approval signatures are uploaded by <strong>Finance Head</strong>,{' '}
+                        <strong>Sales Head</strong>, and <strong>Procurement Head</strong> — their
+                        stamps appear on approved documents (invoices, awards, requisitions).
+                    </p>
+                    <p className="text-gray-600">
+                        Your approvals are captured automatically through the system's audit
+                        trail, so no signature upload is required for your role.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
     const { askConfirm } = usePrompt();
     const { log } = useActivityLog();
     const [signatures, setSignatures] = useState([]);

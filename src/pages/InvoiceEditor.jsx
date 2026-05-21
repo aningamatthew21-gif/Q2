@@ -128,7 +128,60 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                     setInvoice(data);
                     const itemsArray = data.lineItems || data.items || [];
                     setQuoteItems(itemsArray);
-                    setTaxes(data.taxBreakdown || []);
+                    // ── Tax catalogue load policy ──────────────────────────
+                    // Pre-customer-send invoices (Draft, Pending Pricing,
+                    // Pending Approval, Rejected-back-to-sales) ALWAYS pull
+                    // the live global /settings/taxes catalogue. This means
+                    // the FH approval view mirrors current Tax Settings —
+                    // new taxes (e.g. a newly-added TRIAL TAX) appear with
+                    // their global enabled-state, and rate changes flow
+                    // through. Matches the QuotingModule sales-engine
+                    // behaviour the user asked for. FH retains the ability
+                    // to toggle individual taxes off per-invoice; the toggle
+                    // is captured in `taxBreakdown` when they approve.
+                    //
+                    // Finalized invoices (Approved onward — customer has
+                    // either been sent the invoice or has acted on it) load
+                    // the saved snapshot so the historical record stays
+                    // intact and matches what the customer received. Global
+                    // is only consulted as a fallback if the snapshot is
+                    // missing (legacy invoices created before snapshot
+                    // persistence existed).
+                    //
+                    // The cutoff is FH approval: status === 'Approved' is
+                    // when the snapshot becomes the source of truth.
+                    const FINALIZED_STATUSES = new Set([
+                        'Approved',
+                        'Sent',
+                        'Customer Accepted',
+                        'Customer Rejected',
+                        'Paid',
+                        'Partially Paid',
+                        'Cancelled',
+                        'Closed'
+                    ]);
+                    const savedTaxes = Array.isArray(data.taxBreakdown) ? data.taxBreakdown : [];
+                    const isFinalized = FINALIZED_STATUSES.has(data.status);
+
+                    if (isFinalized && savedTaxes.length > 0) {
+                        // Locked snapshot — preserve customer-facing tax history.
+                        setTaxes(savedTaxes);
+                    } else {
+                        // Pre-customer-send OR finalized-but-no-snapshot: pull live global.
+                        try {
+                            const taxRes = await api.get('/settings/taxes');
+                            const globalTaxes = (taxRes?.success && Array.isArray(taxRes.data?.taxArray))
+                                ? taxRes.data.taxArray
+                                : [];
+                            // Final guard: if global also empty (shouldn't happen, but
+                            // defensive), keep whatever was on the invoice rather than
+                            // rendering an empty taxes block.
+                            setTaxes(globalTaxes.length > 0 ? globalTaxes : savedTaxes);
+                        } catch (taxErr) {
+                            console.error('Error loading global tax catalogue:', taxErr);
+                            setTaxes(savedTaxes); // fall back to whatever was on the invoice
+                        }
+                    }
                     setOrderCharges(data.orderCharges || { shipping: 0, handling: 0, discount: 0 });
                     setSelectedCustomer(customers.find(c => c.id === data.customerId) || null);
                     if (data.currency) setCurrency(data.currency);

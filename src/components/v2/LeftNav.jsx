@@ -32,6 +32,7 @@ const ROLE_SECTIONS = {
       { page: 'quoting',             label: 'New Quote',     icon: FilePlus       },
       { page: 'myInvoices',          label: 'My Invoices',   icon: UserCheck      },
       { page: 'salesInvoiceApproval',label: 'Approvals',     icon: CheckCheck     },
+      { page: 'salesPriceList',      label: 'Price List',    icon: Tags           },
       { page: 'mySignatures',        label: 'My Signatures', icon: FileText       },
       { page: 'auditTrail',          label: 'Audit',         icon: History        }
     ]}

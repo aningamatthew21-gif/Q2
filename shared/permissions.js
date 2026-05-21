@@ -138,6 +138,7 @@ export const ACTIONS = Object.freeze({
   'pr.create':                   'Create a purchase requisition',
   'pr.cancel':                   'Cancel a purchase requisition',
   'pr.fulfill':                  'Mark a PR fulfilled',
+  'pr.assign':                   'Assign a PR to a procurement officer (head only)',
 
   'rfq.read':                    'View RFQs',
   'rfq.create':                  'Build an RFQ',
@@ -181,6 +182,7 @@ export const ACTIONS = Object.freeze({
   'procurement.settings.edit':   'Edit procurement thresholds / approvals',
   'targets.read':                'View sales / department performance targets',
   'targets.edit':                'Set / update performance targets',
+  'company.edit':                'Edit company invoice template data (header / footer / bank account)',
 
   // ── System / admin ─────────────────────────────────────────
   'user.manage':                 'Provision / promote / deactivate users',
@@ -213,10 +215,16 @@ const FINANCE_OFFICER_ACTIONS = [
   'inventory.read',    'inventory.write',
   'vendor.read',
   'pricing.read',      'pricing.write',
-  'tax.read',
+  'tax.read',          'tax.edit',  // finance officers maintain tax config (common data adjustment)
   'fx.read',           'fx.edit',
-  // Targets — finance officers see departmental targets for reporting
-  'targets.read',
+  // Targets — finance officers maintain departmental targets (common
+  // data adjustment, same rationale as tax.edit + fx.edit). Head retains
+  // override capability via targets.edit inheritance.
+  'targets.read',      'targets.edit',
+  // Company data — invoice header/footer/bank info that appears on every
+  // outgoing document. Finance owns it; granting to officer for routine
+  // edits (logo changes, address updates, account numbers).
+  'company.edit',
   // Finance officers also approve invoice pricing, which mints permanent IDs
   'system.invoice_counter.edit',
   // Audit (own scope)
@@ -226,13 +234,17 @@ const FINANCE_OFFICER_ACTIONS = [
 
 const FINANCE_HEAD_ACTIONS = [
   ...FINANCE_OFFICER_ACTIONS,
-  // Approvals (finance side only)
+  // Quote authoring — finance heads can originate quotes and stamp them
+  // through both gates (SoD-bypass for finance_head/admin lives in
+  // SOD_RULES below — heads have role authority to self-approve).
+  'quote.create',
+  'invoice.approve.sales',
+  // Approvals (finance side)
   'invoice.approve.finance',
   'invoice.reject.finance',
   'invoice.reapprove',
   'invoice.mark_paid',
   // Master data — full power
-  'tax.edit',
   'vendor.write',
   // Visibility across all departments (per the design)
   'pr.read',
@@ -297,6 +309,7 @@ const PROCUREMENT_HEAD_ACTIONS = [
   'rfq.approve.award',
   'rfq.reject',
   'rfq.cancel',
+  'pr.assign',                      // head decides who works which PR; officer cannot reassign
   'vendor.deactivate',
   'procurement.settings.edit',      // head/admin only — officer can read but not edit thresholds
   'audit.read.department',
@@ -355,6 +368,12 @@ export const PAGE_PERMISSIONS = Object.freeze({
   pricingManagement:            'pricing.read',
   taxSettings:                  'tax.read',
   vendors:                      'vendor.read',
+  // Sales-facing read-only price list. Sales already holds `inventory.read`
+  // for the catalogue itself; this gate just authorises the dedicated
+  // sales-side page (separate from the Finance Price List tab in System
+  // Settings). All other roles with inventory.read also pass — harmless,
+  // they have their own paths to the same data.
+  salesPriceList:               'inventory.read',
 
   // System
   auditTrail:                   'audit.read.own',
@@ -381,6 +400,11 @@ export const SOD_RULES = Object.freeze({
     description: 'Sales-head approval — approver must NOT be the user who created the invoice.',
     check: (user, invoice) => {
       if (!user?.email || !invoice) return false;
+      // Role-based SoD bypass: admin and finance_head carry role-level
+      // authority to self-approve regardless of who created the record.
+      // The action is still audit-logged with the actor's email so the
+      // self-approval is traceable; SoD just doesn't 403 it.
+      if (user.role === 'admin' || user.role === 'finance_head') return true;
       return user.email !== invoice.createdBy
           && user.email !== invoice.salesPersonId;
     }
@@ -389,6 +413,11 @@ export const SOD_RULES = Object.freeze({
     description: 'Finance-head approval — approver must NOT be the original sales creator.',
     check: (user, invoice) => {
       if (!user?.email || !invoice) return false;
+      // Role-based SoD bypass: admin and finance_head carry role-level
+      // authority to self-approve regardless of who created the record.
+      // The action is still audit-logged with the actor's email so the
+      // self-approval is traceable; SoD just doesn't 403 it.
+      if (user.role === 'admin' || user.role === 'finance_head') return true;
       return user.email !== invoice.createdBy
           && user.email !== invoice.salesPersonId;
     }

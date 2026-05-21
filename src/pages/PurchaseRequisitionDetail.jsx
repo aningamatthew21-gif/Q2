@@ -6,9 +6,11 @@ import PageHeader from '../components/common/PageHeader';
 import Button from '../components/common/Button';
 import Notification from '../components/common/Notification';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
+import AssignPRModal from '../components/modals/AssignPRModal';
 import { logActivity } from '../utils/logger';
 import { useApp } from '../context/AppContext';
 import { usePrompt } from '../components/v2/PromptDialog';
+import { can } from '../utils/permissions';
 
 const PriorityBadge = ({ value }) => (
     <span className={`px-2 py-1 rounded-full text-xs ${
@@ -36,13 +38,37 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
     const [error, setError] = useState(null);
     const [notification, setNotification] = useState(null);
     const [editingPriority, setEditingPriority] = useState(null);
+    const [assignModalOpen, setAssignModalOpen] = useState(false);
     const { userEmail } = useApp();
     const { askText, askConfirm } = usePrompt();
     const username = userEmail ? userEmail.split('@')[0] : 'System';
 
-    const role = currentUser?.role;
-    const canEdit = role === 'procurement' || role === 'controller' || role === 'admin';
-    const backPage = role === 'procurement' ? 'procurementDashboard' : 'controllerDashboard';
+    // Permission-driven action gates. The legacy literal role-string
+    // check (`role === 'procurement' || 'controller' || 'admin'`) excluded
+    // both `procurement_head` and `procurement_officer`, leaving heads
+    // unable to assign and officers unable to work their own PRs.
+    //
+    //   canAssign   — head/admin only (reassign or initial assignment)
+    //   isMine      — this PR is currently assigned to the viewer
+    //   canEdit     — head can edit any PR; officer can edit only their own
+    //   canCancel   — `pr.cancel` (head + officer) AND canEdit
+    //   canFulfill  — `pr.fulfill` (head + officer) AND canEdit
+    //
+    // Officers viewing a PR not assigned to them get a read-only view:
+    // they can see status, priority, history, linked invoice — but no
+    // action buttons render until the head assigns it to them.
+    const role        = currentUser?.role;
+    const canAssign   = can(currentUser, 'pr.assign');
+    const isMine      = pr?.assignedTo && pr.assignedTo === userEmail;
+    const canEdit     = canAssign || isMine;
+    const canCancel   = canEdit && can(currentUser, 'pr.cancel');
+    const canFulfill  = canEdit && can(currentUser, 'pr.fulfill');
+
+    // Back-link target — procurement users go to their dashboard;
+    // anyone else (finance head with cross-dept visibility) goes to theirs.
+    const backPage = (role === 'procurement_head' || role === 'procurement_officer' || role === 'procurement')
+        ? 'procurementDashboard'
+        : 'controllerDashboard';
 
     const fetchPR = async () => {
         try {
@@ -82,14 +108,23 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
         }
     };
 
-    const handleAssignToMe = async () => {
-        try {
-            await api.put(`/purchase-requisitions/${prId}`, { assignedTo: userEmail });
-            await logActivity(username, 'Assigned PR', `Self-assigned ${pr.prNumber}`);
-            setNotification({ type: 'success', message: 'Assigned to you.' });
-        } catch (err) {
-            setNotification({ type: 'error', message: 'Failed to assign.' });
-        }
+    // Called by AssignPRModal after a successful assignment. We refresh
+    // the PR from the server (instead of optimistically setting from the
+    // assignee email alone) so the activity history and any server-side
+    // side effects — like the PR_REASSIGNED event row — surface in the
+    // History panel immediately.
+    const handleAssignmentSaved = async (newAssigneeEmail) => {
+        await logActivity(username,
+            currentUser?.email === newAssigneeEmail ? 'Self-assigned PR' : 'Assigned PR',
+            `${pr?.prNumber || prId} → ${newAssigneeEmail || 'unassigned'}`
+        );
+        setNotification({
+            type: 'success',
+            message: newAssigneeEmail
+                ? (currentUser?.email === newAssigneeEmail ? 'Assigned to you.' : `Assigned to ${newAssigneeEmail}.`)
+                : 'Assignment cleared.'
+        });
+        fetchPR();
     };
 
     const handleCancel = async () => {
@@ -246,20 +281,36 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
                             )}
                         </div>
 
-                        {canEdit && pr.status !== 'CANCELLED' && pr.status !== 'FULFILLED' && (
+                        {/* Actions panel — visible to the assignee (officer working
+                            their own PR) AND to the head (who can act on any PR).
+                            Officers viewing an unassigned-to-them PR see no panel:
+                            the read-only fields above still tell them everything
+                            they need to know, but the work buttons stay hidden. */}
+                        {(canEdit || canAssign) && pr.status !== 'CANCELLED' && pr.status !== 'FULFILLED' && (
                             <div className="bg-surface p-6 rounded-panel shadow-card border border-line space-y-3">
                                 <h3 className="font-semibold mb-2">Actions</h3>
-                                {!pr.assignedTo && (
-                                    <button onClick={handleAssignToMe} className="w-full py-2 px-4 bg-blue-600 text-white rounded-md text-sm">
-                                        Assign to me
+
+                                {/* Assign / Reassign — head-only. Replaces the
+                                    earlier one-click "Assign to me" with a
+                                    proper picker modal so the head can route
+                                    work to any officer in the department. */}
+                                {canAssign && (
+                                    <button
+                                        onClick={() => setAssignModalOpen(true)}
+                                        className="w-full py-2 px-4 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                                    >
+                                        {pr.assignedTo ? 'Reassign' : 'Assign'}
                                     </button>
                                 )}
-                                {pr.status === 'OPEN' && (
+
+                                {/* Work actions — only the assignee (or head)
+                                    can move the PR through its lifecycle. */}
+                                {canEdit && pr.status === 'OPEN' && (
                                     <button onClick={() => navigateTo('rfqBuilder', { preselectedPrIds: [prId] })} className="w-full py-2 px-4 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700">
                                         Create RFQ for this PR
                                     </button>
                                 )}
-                                {pr.status === 'AWARDED' && (
+                                {canFulfill && pr.status === 'AWARDED' && (
                                     <button
                                         onClick={handleMarkFulfilled}
                                         className="w-full py-2 px-4 bg-emerald-600 text-white rounded-md text-sm hover:bg-emerald-700"
@@ -267,9 +318,24 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
                                         ✓ Mark as Fulfilled
                                     </button>
                                 )}
-                                <button onClick={() => handleCancel()} className="w-full py-2 px-4 border border-red-300 text-red-600 rounded-md text-sm">
-                                    Cancel Requisition
-                                </button>
+                                {canCancel && (
+                                    <button onClick={() => handleCancel()} className="w-full py-2 px-4 border border-red-300 text-red-600 rounded-md text-sm">
+                                        Cancel Requisition
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Read-only notice for officers viewing a PR not
+                            assigned to them — communicates intent rather than
+                            silently hiding the panel. */}
+                        {!canEdit && !canAssign && pr.status !== 'CANCELLED' && pr.status !== 'FULFILLED' && (
+                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-panel text-sm text-amber-800">
+                                <div className="font-semibold mb-1">Read-only view</div>
+                                <div>
+                                    This PR isn't assigned to you. Ask the procurement head to assign
+                                    it to you before working on it.
+                                </div>
                             </div>
                         )}
 
@@ -289,6 +355,19 @@ const PurchaseRequisitionDetail = ({ navigateTo, pageContext, currentUser }) => 
                         )}
                     </div>
             </div>
+
+            {/* Assign / Reassign picker — controlled from the Actions panel.
+                Only mounts when the head has opened it, so the user list
+                fetch only runs on demand. */}
+            <AssignPRModal
+                open={assignModalOpen}
+                onClose={() => setAssignModalOpen(false)}
+                prId={prId}
+                prNumber={pr?.prNumber}
+                currentAssignedTo={pr?.assignedTo}
+                currentUserEmail={userEmail}
+                onAssigned={handleAssignmentSaved}
+            />
         </>
     );
 };

@@ -11,6 +11,7 @@ import CompanyDataSettings from '../components/settings/CompanyDataSettings';
 
 import { useActivityLog } from '../hooks/useActivityLog';
 import { usePrompt } from '../components/v2/PromptDialog';
+import { can } from '../utils/permissions';
 
 const TaxSettings = ({ navigateTo, userId, currentUser }) => {
     const { askConfirm } = usePrompt();
@@ -230,7 +231,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
 
                 {activeTab === 'taxes' && (
                     <>
-                        {currentUser && currentUser.role === 'controller' && <div className="bg-surface p-6 rounded-panel shadow-card border border-line max-w-4xl mx-auto">
+                        {can(currentUser, 'tax.edit') && <div className="bg-surface p-6 rounded-panel shadow-card border border-line max-w-4xl mx-auto">
                             <div className="flex justify-between items-center mb-6">
                                 <div>
                                     <h2 className="text-xl font-semibold text-gray-700">Tax Configuration</h2>
@@ -326,7 +327,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
                         </div>}
 
                         {/* Exchange Rate Settings Section */}
-                        {currentUser && currentUser.role === 'controller' && <div className="bg-surface p-6 rounded-panel shadow-card border border-line max-w-4xl mx-auto mt-8">
+                        {can(currentUser, 'fx.edit') && <div className="bg-surface p-6 rounded-panel shadow-card border border-line max-w-4xl mx-auto mt-8">
                             <div className="flex items-start justify-between mb-2">
                                 <div>
                                     <h2 className="text-xl font-semibold text-gray-700">Rate Settings</h2>
@@ -403,7 +404,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
                 )}
 
                 {activeTab === 'signatures' && (
-                    <SignaturesSettings userId={userId} />
+                    <SignaturesSettings userId={userId} currentUser={currentUser} />
                 )}
 
                 {activeTab === 'pricelist' && (

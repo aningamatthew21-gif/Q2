@@ -27,7 +27,7 @@ const express = require('express');
 const { execute } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
 const { authMiddleware, requirePermission } = require('../middleware/authMiddleware');
-const { ROLES, ALL_ROLES, ROLE_LABEL } = require('../../shared/permissions.js');
+const { ROLES, ALL_ROLES, ROLE_LABEL, ROLE_DEPARTMENT } = require('../../shared/permissions.js');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -51,6 +51,76 @@ async function countAdmins() {
   );
   return Number(r.rows?.[0]?.C || 0);
 }
+
+// ── GET /api/users/department/:dept ──────────────────────────────────────
+// Lightweight, department-scoped listing for assignment dropdowns.
+//
+// Used by the procurement-head's "Assign PR" modal to pick from the
+// procurement-department user list without needing full `user.manage`
+// power. Returns only the fields the dropdown needs (email/name/role)
+// — no status timestamps, no created-at metadata, no admin-only fields.
+//
+// Gated by `pr.assign` because the immediate caller (the assign modal)
+// is the only consumer today. Future consumers (other heads needing
+// to pick from their own department) should add their own permission
+// to the OR-list here rather than relaxing to plain `pr.read`.
+router.get('/department/:dept', requirePermission('pr.assign'), catchAsync(async (req, res) => {
+  const dept = String(req.params.dept || '').toLowerCase().trim();
+  if (!dept) {
+    return res.status(400).json({ success: false, error: 'Department is required.' });
+  }
+
+  // Resolve which tiered roles map to this department.
+  const rolesInDept = Object.entries(ROLE_DEPARTMENT)
+    .filter(([_role, d]) => d === dept)
+    .map(([role]) => role);
+
+  if (rolesInDept.length === 0) {
+    return res.json({ success: true, data: { users: [] } });
+  }
+
+  // Also resolve any LEGACY single-word role strings (e.g. `procurement`)
+  // that still exist on user rows but map to the same department via
+  // `legacyRoleToTiered`. This lets a user who hasn't been migrated yet
+  // still show up in the dropdown.
+  const legacyRolesForDept = {
+    finance:     ['controller'],
+    sales:       ['sales'],
+    procurement: ['procurement']
+  };
+  const acceptedRoles = [...rolesInDept, ...(legacyRolesForDept[dept] || [])];
+
+  // Build the IN-clause bind list dynamically (Oracle disallows IN-bind of
+  // an array, so each role gets its own bind name).
+  const binds = {};
+  const placeholders = acceptedRoles.map((r, i) => {
+    const k = `r${i}`;
+    binds[k] = r;
+    return `:${k}`;
+  });
+
+  const sql = `
+    SELECT USER_EMAIL, USER_ROLE, USER_NAME
+      FROM QA_USERS
+     WHERE USER_STATUS = 'active'
+       AND USER_ROLE IN (${placeholders.join(', ')})
+     ORDER BY USER_NAME NULLS LAST, USER_EMAIL
+  `;
+  const result = await execute(sql, binds, { outFormat: 4002 });
+
+  res.json({
+    success: true,
+    data: {
+      department: dept,
+      users: (result.rows || []).map(r => ({
+        email: r.USER_EMAIL,
+        name:  r.USER_NAME || null,
+        role:  r.USER_ROLE,
+        roleLabel: ROLE_LABEL[r.USER_ROLE] || r.USER_ROLE
+      }))
+    }
+  });
+}));
 
 // ── GET /api/users ───────────────────────────────────────────────────────
 router.get('/', requirePermission('user.manage'), catchAsync(async (req, res) => {

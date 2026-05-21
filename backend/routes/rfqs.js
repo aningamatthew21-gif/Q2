@@ -14,6 +14,61 @@ const { emitToAll } = require('../utils/socketEmitter');
 const { sendRfqEmail } = require('../utils/email');
 const { calculateVendorScores, DEFAULT_WEIGHTS } = require('../utils/vendorScoring');
 const { notify } = require('../services/notificationService');
+const { can } = require('../../shared/permissions.js');
+
+// ── RFQ ownership (derived from linked PR assignments) ───────────────────
+//
+// An officer "owns" an RFQ if they are the current ASSIGNED_TO of at least
+// one purchase requisition linked to the RFQ via QA_RFQ_LINE_ITEMS. This
+// is derived ownership — there's no ASSIGNED_TO column on the RFQ itself.
+//
+// The advantage of deriving instead of storing: when the procurement head
+// reassigns a PR (via PUT /purchase-requisitions/:id), the new officer
+// automatically inherits access to any RFQ that PR is part of — without
+// requiring a second "reassign the RFQ" action. Conversely, an officer
+// who loses all their linked PRs to reassignment loses access naturally.
+//
+// PH / admin always bypass this check via `rfq.approve.award`. The
+// ownership gate exists purely to protect officer-level actions
+// (`rfq.response.log`, `rfq.send`, `rfq.recommend`, `rfq.escalate`) from
+// being run by an officer who isn't actually working the RFQ.
+async function getRfqAssignedOfficers(rfqId) {
+  const r = await execute(
+    `SELECT DISTINCT pr.ASSIGNED_TO AS OFFICER
+       FROM QA_RFQ_LINE_ITEMS li
+       JOIN QA_PURCHASE_REQUISITIONS pr ON pr.PR_ID = li.PR_ID
+      WHERE li.RFQ_ID = :id AND pr.ASSIGNED_TO IS NOT NULL`,
+    { id: rfqId }, { outFormat: 4002 }
+  );
+  return new Set((r.rows || []).map(row => row.OFFICER).filter(Boolean));
+}
+
+// Middleware: gate the request behind RFQ ownership for officer-level
+// actions. PH/admin bypass automatically. Must run AFTER requirePermission
+// so the permission catalogue is the first line of defence.
+function requireRfqOwnership(req, res, next) {
+  // PH / admin / anyone with award authority bypasses ownership entirely —
+  // by definition they can act on any RFQ regardless of who's assigned.
+  if (can(req.user.role, 'rfq.approve.award')) return next();
+
+  const rfqId = req.params.id;
+  if (!rfqId) {
+    return res.status(400).json({ success: false, error: 'RFQ id is required.' });
+  }
+
+  getRfqAssignedOfficers(rfqId)
+    .then(officers => {
+      if (officers.has(req.user.email)) return next();
+      return res.status(403).json({
+        success: false,
+        error: "This RFQ isn't linked to a purchase requisition currently assigned to you. Ask the procurement head to reassign a linked PR to you before working on it."
+      });
+    })
+    .catch(err => {
+      console.error('[requireRfqOwnership] check failed:', err);
+      return res.status(500).json({ success: false, error: 'Ownership check failed.' });
+    });
+}
 
 /**
  * Recompute taxes from the stored TAX_BREAKDOWN CLOB rates rather than using
@@ -152,11 +207,23 @@ const rowToRFQ = (row) => {
  */
 router.get('/', catchAsync(async (req, res) => {
   const { status } = req.query;
+  // The ASSIGNED_OFFICERS subquery materialises the derived ownership for
+  // each RFQ — comma-joined list of distinct PR assignees. The inner
+  // SELECT DISTINCT pre-deduplicates so the outer LISTAGG works on Oracle
+  // 11g+ (LISTAGG DISTINCT only landed in 19c). Empty string when no PRs
+  // are linked or none have assignees.
   let sql = `
     SELECT r.*,
       (SELECT COUNT(*) FROM QA_RFQ_VENDORS rv WHERE rv.RFQ_ID = r.RFQ_ID) AS VENDOR_COUNT,
       (SELECT COUNT(DISTINCT rr.VENDOR_ID) FROM QA_RFQ_RESPONSES rr WHERE rr.RFQ_ID = r.RFQ_ID) AS RESPONSE_COUNT,
-      (SELECT COUNT(*) FROM QA_RFQ_LINE_ITEMS li WHERE li.RFQ_ID = r.RFQ_ID) AS ITEMS_COUNT
+      (SELECT COUNT(*) FROM QA_RFQ_LINE_ITEMS li WHERE li.RFQ_ID = r.RFQ_ID) AS ITEMS_COUNT,
+      (SELECT LISTAGG(officer, ',') WITHIN GROUP (ORDER BY officer)
+         FROM (
+           SELECT DISTINCT pr.ASSIGNED_TO AS officer
+             FROM QA_RFQ_LINE_ITEMS li
+             JOIN QA_PURCHASE_REQUISITIONS pr ON pr.PR_ID = li.PR_ID
+            WHERE li.RFQ_ID = r.RFQ_ID AND pr.ASSIGNED_TO IS NOT NULL
+         )) AS ASSIGNED_OFFICERS
     FROM QA_RFQS r WHERE 1=1`;
   const binds = {};
   if (status) {
@@ -169,9 +236,12 @@ router.get('/', catchAsync(async (req, res) => {
     success: true,
     data: (result.rows || []).map(row => ({
       ...rowToRFQ(row),
-      vendorCount:   Number(row.VENDOR_COUNT   || 0),
-      responseCount: Number(row.RESPONSE_COUNT || 0),
-      itemsCount:    Number(row.ITEMS_COUNT    || 0),
+      vendorCount:      Number(row.VENDOR_COUNT   || 0),
+      responseCount:    Number(row.RESPONSE_COUNT || 0),
+      itemsCount:       Number(row.ITEMS_COUNT    || 0),
+      assignedOfficers: row.ASSIGNED_OFFICERS
+        ? String(row.ASSIGNED_OFFICERS).split(',').map(s => s.trim()).filter(Boolean)
+        : []
     }))
   });
 }));
@@ -256,7 +326,12 @@ router.get('/:id', catchAsync(async (req, res) => {
     receivedDate: r.RECEIVED_DATE || ''
   }));
 
-  res.json({ success: true, data: { ...rfq, lineItems, vendors, responses } });
+  // Derived ownership — the set of officers currently assigned to any PR
+  // linked to this RFQ. Frontend uses it to compute `isMine` and to render
+  // the "Yours" pill on the list view.
+  const assignedOfficers = Array.from(await getRfqAssignedOfficers(id));
+
+  res.json({ success: true, data: { ...rfq, lineItems, vendors, responses, assignedOfficers } });
 }));
 
 /**
@@ -419,7 +494,7 @@ router.post('/', requirePermission('rfq.create'), catchAsync(async (req, res) =>
  * POST /api/rfqs/:id/send
  * Email all vendors for this RFQ. Sets status SENT.
  */
-router.post('/:id/send', requirePermission('rfq.send'), catchAsync(async (req, res) => {
+router.post('/:id/send', requirePermission('rfq.send'), requireRfqOwnership, catchAsync(async (req, res) => {
   const { id } = req.params;
 
   // Build all the data needed to email
@@ -526,7 +601,7 @@ router.post('/:id/send', requirePermission('rfq.send'), catchAsync(async (req, r
  * Manually log a vendor response (one row per PR per vendor)
  * Body: { vendorId, prId, unitCost, quantity, leadTimeDays, freight, deliveryTerms, paymentTerms, validityDays, currency, notes, receivedDate }
  */
-router.post('/:id/responses', requirePermission('rfq.response.log'), catchAsync(async (req, res) => {
+router.post('/:id/responses', requirePermission('rfq.response.log'), requireRfqOwnership, catchAsync(async (req, res) => {
   const { id } = req.params;
   const r = req.body || {};
   if (!r.vendorId || !r.prId) {
@@ -610,7 +685,7 @@ router.post('/:id/responses', requirePermission('rfq.response.log'), catchAsync(
  * Marks the responses as winners, updates RFQ + PRs to AWARDED,
  * and pushes awarded costs back into the originating invoice line items.
  */
-router.post('/:id/award', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/:id/award', requirePermission('rfq.approve.award'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { vendorId, responseIds = [] } = req.body || {};
   if (!vendorId || responseIds.length === 0) {
@@ -835,7 +910,7 @@ router.post('/:id/award', requireRole('procurement', 'controller', 'admin'), cat
  *
  * Body: { vendorId, responseIds[], score, reason, allowPartial }
  */
-router.post('/:id/recommend', requirePermission('rfq.recommend'), catchAsync(async (req, res) => {
+router.post('/:id/recommend', requirePermission('rfq.recommend'), requireRfqOwnership, catchAsync(async (req, res) => {
   const { id } = req.params;
   const {
     vendorId,
@@ -954,7 +1029,7 @@ router.post('/:id/recommend', requirePermission('rfq.recommend'), catchAsync(asy
 /**
  * DELETE /api/rfqs/:id  → cancel an RFQ (and revert PRs to OPEN)
  */
-router.delete('/:id', requireRole('procurement', 'controller', 'admin'), catchAsync(async (req, res) => {
+router.delete('/:id', requirePermission('rfq.cancel'), catchAsync(async (req, res) => {
   const { id } = req.params;
   await transaction(async (conn) => {
     await conn.execute(
@@ -1371,7 +1446,7 @@ router.post('/:id/reject', requireRole('procurement', 'admin'), catchAsync(async
  * automatic threshold fires. Body: { reason?: string, escalatedTo?: string }.
  * No-op if the RFQ is already escalated.
  */
-router.post('/:id/escalate', requirePermission('rfq.escalate'), catchAsync(async (req, res) => {
+router.post('/:id/escalate', requirePermission('rfq.escalate'), requireRfqOwnership, catchAsync(async (req, res) => {
   const { id } = req.params;
   const { reason, escalatedTo } = req.body || {};
 

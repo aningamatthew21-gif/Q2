@@ -31,6 +31,7 @@ import SalesInvoiceReview from '../pages/SalesInvoiceReview';
 import AllInvoices from '../pages/AllInvoices';
 import InvoiceEditor from '../pages/InvoiceEditor';
 import InventoryManagement from '../pages/InventoryManagement';
+import SalesPriceList from '../pages/SalesPriceList';
 import CustomerManagement from '../pages/CustomerManagement';
 import CustomerPortal from '../pages/CustomerPortal';
 import TaxSettings from '../pages/TaxSettings';
@@ -374,6 +375,8 @@ export const AppProvider = ({ children }) => {
                 return <InvoiceEditor {...commonProps} pageContext={pageContext} />;
             case 'inventory':
                 return <InventoryManagement {...commonProps} />;
+            case 'salesPriceList':
+                return <SalesPriceList {...commonProps} />;
             case 'customers':
                 return <CustomerManagement {...commonProps} />;
             case 'customerPortal':

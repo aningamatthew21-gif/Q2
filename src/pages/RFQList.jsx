@@ -5,6 +5,7 @@ import Button from '../components/common/Button';
 import { useRealtimeRFQs } from '../hooks/useRealtimeRFQs';
 import { useDebounce } from '../hooks/useDebounce';
 import { SortableHeader, useSortable } from '../components/v2';
+import { useApp } from '../context/AppContext';
 
 const STATUS_FILTERS = [
     { id: 'ALL',              label: 'All' },
@@ -86,8 +87,15 @@ const RFQList = ({ navigateTo, currentUser }) => {
     const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedRfqs } =
         useSortable(sortableRfqs, '_created', 'desc');
 
+    // Pull the current user's email so we can render the "Yours" pill on
+    // RFQs whose linked PRs are assigned to them. This mirrors the badge
+    // we added to the PR list — officers can spot their workload at a
+    // glance instead of opening every RFQ to check.
+    const { userEmail } = useApp();
     const role = currentUser?.role;
-    const backPage = role === 'procurement' ? 'procurementDashboard' : 'controllerDashboard';
+    const backPage = (role === 'procurement_head' || role === 'procurement_officer' || role === 'procurement')
+        ? 'procurementDashboard'
+        : 'controllerDashboard';
 
     return (
         <>
@@ -173,6 +181,7 @@ const RFQList = ({ navigateTo, currentUser }) => {
                                         <th className="p-3 text-center"><SortableHeader label="Responses" sortKey="_vendors" current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
                                         <th className="p-3 text-right"><SortableHeader  label="Award"    sortKey="_award"    current={sortKey} dir={sortDir} onToggle={toggleSort} align="right" /></th>
                                         <th className="p-3 text-center"><SortableHeader label="Status"   sortKey="status"    current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
+                                        <th className="p-3 text-left">Assigned</th>
                                         <th className="p-3 text-left"><SortableHeader  label="Created"   sortKey="_created"  current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
                                         <th className="p-3 font-semibold text-xs text-gray-500 uppercase"></th>
                                     </tr>
@@ -225,6 +234,30 @@ const RFQList = ({ navigateTo, currentUser }) => {
                                                     </span>
                                                 )}
                                             </td>
+                                            <td className="p-3 text-sm text-gray-700">
+                                                {(() => {
+                                                    const officers = Array.isArray(r.assignedOfficers) ? r.assignedOfficers : [];
+                                                    const isMine = userEmail && officers.includes(userEmail);
+                                                    if (officers.length === 0) {
+                                                        return <span className="text-gray-400 italic">Unassigned</span>;
+                                                    }
+                                                    return (
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <span className="truncate max-w-[180px]" title={officers.join(', ')}>
+                                                                {officers[0].split('@')[0]}
+                                                                {officers.length > 1 && (
+                                                                    <span className="text-gray-400"> +{officers.length - 1}</span>
+                                                                )}
+                                                            </span>
+                                                            {isMine && (
+                                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700 uppercase tracking-wide">
+                                                                    Yours
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </td>
                                             <td className="p-3 text-xs text-gray-500">
                                                 {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : '—'}
                                             </td>
@@ -241,7 +274,7 @@ const RFQList = ({ navigateTo, currentUser }) => {
                                     })}
                                     {filtered.length === 0 && (
                                         <tr>
-                                            <td colSpan="9" className="p-6 text-center text-gray-500">
+                                            <td colSpan="10" className="p-6 text-center text-gray-500">
                                                 No RFQs match the current filters.
                                             </td>
                                         </tr>

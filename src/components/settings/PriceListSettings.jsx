@@ -1,23 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Icon from '../common/Icon';
 import { useRealtimeInventory } from '../../hooks/useRealtimeInventory';
 import { formatCurrency } from '../../utils/formatting';
+
+// Page size matches the convention used by other paginated tables in the
+// app (PR list, Inventory). 50 rows fits a typical 1080px viewport without
+// scrolling and keeps row-render cost low even on a 10k-item catalogue.
+const PAGE_SIZE = 50;
 
 const PriceListSettings = ({ currentMonthRate, currentMonthKey }) => {
     const { data: rawInventory, loading: inventoryLoading } = useRealtimeInventory();
     const inventory = Array.isArray(rawInventory) ? rawInventory : [];
     const [priceListSearch, setPriceListSearch] = useState('');
+    const [page, setPage] = useState(1);
 
-    const itemMatchesSearch = (item) =>
-        (item.name || '').toLowerCase().includes(priceListSearch.toLowerCase());
+    // Memoise the filtered list — the previous implementation invoked the
+    // filter three times per render (existence check, length check, map),
+    // which was wasted CPU on a multi-thousand-row catalogue. Memo also
+    // gives pagination a stable reference to slice from.
+    const filteredInventory = useMemo(() => {
+        const term = priceListSearch.toLowerCase();
+        if (!term) return inventory;
+        return inventory.filter(item => (item.name || '').toLowerCase().includes(term));
+    }, [inventory, priceListSearch]);
+
+    // Reset to page 1 whenever the search term changes — otherwise a search
+    // that narrows the result set to fewer pages than the current page would
+    // render an empty table with no visual signal of why.
+    useEffect(() => { setPage(1); }, [priceListSearch]);
+
+    const totalRows  = filteredInventory.length;
+    const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+    // Clamp page in case row count drops below current page bounds (e.g.
+    // an inventory item is deleted while the user is on the last page).
+    const safePage   = Math.min(page, totalPages);
+    const startIdx   = (safePage - 1) * PAGE_SIZE;
+    const pageRows   = filteredInventory.slice(startIdx, startIdx + PAGE_SIZE);
 
     const handleExportPriceList = () => {
+        // Export exports the FULL filtered list (not just the current page) —
+        // when a user clicks "Export to Excel" they expect the whole dataset
+        // matching their search, not a one-page snapshot.
         const headers = ["S/N", "SKU", "Description", "Stock Level", "Final Price (GHS)", "Final Price (USD)", "Exchange Rate"];
         const rate = currentMonthRate || 0;
 
         const csvRows = [headers.join(',')];
-
-        const filteredInventory = inventory.filter(itemMatchesSearch);
 
         filteredInventory.forEach((item, index) => {
             const priceGhs = item.price || 0;
@@ -95,18 +122,22 @@ const PriceListSettings = ({ currentMonthRate, currentMonthKey }) => {
                             <tr>
                                 <td colSpan="6" className="px-6 py-4 text-center text-gray-500">Loading inventory...</td>
                             </tr>
-                        ) : inventory.filter(itemMatchesSearch).length === 0 ? (
+                        ) : totalRows === 0 ? (
                             <tr>
                                 <td colSpan="6" className="px-6 py-4 text-center text-gray-500">No items found.</td>
                             </tr>
                         ) : (
-                            inventory.filter(itemMatchesSearch).map((item, index) => {
+                            pageRows.map((item, index) => {
                                 const priceGhs = item.price || 0;
                                 const priceUsd = currentMonthRate ? (priceGhs / currentMonthRate) : 0;
                                 const stockLevel = item.stock || 0;
+                                // S/N reflects the row's ABSOLUTE position in the
+                                // filtered set, not its page-relative index — so
+                                // page 2 starts at 51, not 1.
+                                const serial = startIdx + index + 1;
                                 return (
                                     <tr key={item.id} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{serial}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.id}</td>
                                         <td className="px-6 py-4 text-sm text-gray-500">{item.name}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-gray-900">{stockLevel}</td>
@@ -121,6 +152,36 @@ const PriceListSettings = ({ currentMonthRate, currentMonthKey }) => {
                     </tbody>
                 </table>
             </div>
+
+            {/* Pagination controls — only render when there's more than one
+                page to navigate. Matches the visual pattern used on the PR
+                list and Inventory pages so the app feels consistent. */}
+            {!inventoryLoading && totalRows > 0 && totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                    <p className="text-sm text-gray-500">
+                        Showing {startIdx + 1}–{Math.min(startIdx + PAGE_SIZE, totalRows)} of {totalRows} items
+                    </p>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                            disabled={safePage <= 1}
+                            className="px-3 py-1 text-sm border rounded disabled:opacity-40 hover:bg-gray-50"
+                        >
+                            ← Prev
+                        </button>
+                        <span className="px-3 py-1 text-sm text-gray-700">
+                            Page {safePage} / {totalPages}
+                        </span>
+                        <button
+                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                            disabled={safePage >= totalPages}
+                            className="px-3 py-1 text-sm border rounded disabled:opacity-40 hover:bg-gray-50"
+                        >
+                            Next →
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

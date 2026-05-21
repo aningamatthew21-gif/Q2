@@ -18,6 +18,7 @@ import { PDFService } from '../services/PDFService';
 import { logActivity } from '../utils/logger';
 import { useApp } from '../context/AppContext';
 import { usePrompt } from '../components/v2/PromptDialog';
+import { can } from '../utils/permissions';
 
 const StatusBadge = ({ value }) => (
     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -51,9 +52,56 @@ const RFQDetail = ({ navigateTo, pageContext, currentUser }) => {
     const [recommendVendor, setRecommendVendor] = useState(null);
     const [generatingAwardPDF, setGeneratingAwardPDF] = useState(false);
 
-    const role = currentUser?.role;
-    const canManage = ['procurement', 'controller', 'admin'].includes(role);
-    const backPage = role === 'procurement' ? 'procurementDashboard' : 'controllerDashboard';
+    // ── Permission-driven action gates + RFQ ownership ──────────────
+    // Two layers of authorisation now apply to RFQ actions:
+    //
+    //   1. PERMISSION — does this role hold the action permission at all?
+    //      (e.g. procurement_officer has `rfq.response.log`; sales_officer
+    //      does not.)
+    //
+    //   2. OWNERSHIP — is this officer actually assigned to work on THIS
+    //      RFQ? Derived from the linked PRs: an officer "owns" an RFQ if
+    //      they are the current `ASSIGNED_TO` of at least one PR linked
+    //      to the RFQ. Backend gates the same way (`requireRfqOwnership`).
+    //
+    // PH / admin bypass ownership (they can act on any RFQ) because their
+    // `rfq.approve.award` grant signals that authority. The ownership
+    // layer exists purely to stop officer A from interfering with officer
+    // B's work — both have the permission, but only one has the
+    // assignment.
+    //
+    // `canActOnRfq` is the umbrella visibility gate for the Actions card.
+    const role             = currentUser?.role;
+    const isMine           = Array.isArray(rfq?.assignedOfficers)
+        ? rfq.assignedOfficers.includes(userEmail)
+        : false;
+    const rawApproveAward  = can(currentUser, 'rfq.approve.award');   // PH/admin
+    const rawRejectAward   = can(currentUser, 'rfq.reject');          // PH/admin
+    const rawCancelRfq     = can(currentUser, 'rfq.cancel');          // PH/admin
+    // Officer-side actions need permission AND ownership; PH bypasses
+    // ownership because rawApproveAward implies full RFQ authority.
+    const canLogResponse   = can(currentUser, 'rfq.response.log') && (isMine || rawApproveAward);
+    const canRecommend     = can(currentUser, 'rfq.recommend')     && (isMine || rawApproveAward);
+    const canEscalate      = can(currentUser, 'rfq.escalate')      && (isMine || rawApproveAward);
+    const canSend          = can(currentUser, 'rfq.send')          && (isMine || rawApproveAward);
+    // PH-only actions don't gate on ownership (they're PH-only by permission).
+    const canApproveAward  = rawApproveAward;
+    const canRejectAward   = rawRejectAward;
+    const canCancelRfq     = rawCancelRfq;
+    const canFinanceView   = can(currentUser, 'dashboard.finance.read');
+    const canActOnRfq      = canLogResponse || canApproveAward || canCancelRfq;
+    // Read-only state — officer has permission but no ownership and isn't
+    // PH. Drives the amber notice rendered below the actions panel.
+    const isOfficerReadOnly = !canActOnRfq
+        && can(currentUser, 'rfq.response.log')   // has permission to act in general
+        && !rawApproveAward;                       // but isn't PH/admin
+
+    // Back-link target — procurement users land on their dashboard;
+    // anyone else (finance head with cross-dept visibility) on theirs.
+    // Matches the tiered-role pattern used in PurchaseRequisitionDetail.
+    const backPage = (role === 'procurement_head' || role === 'procurement_officer' || role === 'procurement')
+        ? 'procurementDashboard'
+        : 'controllerDashboard';
 
     const fetchRfq = async () => {
         try {
@@ -565,7 +613,7 @@ MIDSA Procurement`;
                 {/* Phase 5 — escalation / past-deadline risk banner */}
                 <EscalationBanner
                     rfq={rfq}
-                    canEscalate={canManage}
+                    canEscalate={canEscalate}
                     onEscalate={handleEscalate}
                     submitting={escalating}
                 />
@@ -573,7 +621,7 @@ MIDSA Procurement`;
                 {/* Contextual next-action banner — tells the user what to do next */}
                 <NextActionBanner
                     rfq={rfq}
-                    canManage={canManage}
+                    canManage={canActOnRfq}
                     vendorCount={rfq.vendors.length}
                     responseCount={(() => {
                         const respondedSet = new Set(rfq.responses.map(r => r.vendorId));
@@ -609,7 +657,7 @@ MIDSA Procurement`;
                     <SystemRecommendation
                         data={recommendation}
                         currency={rfq.currency}
-                        canAward={canManage}
+                        canAward={canApproveAward}
                         onAward={(vendor) => setRecommendVendor(vendor)}
                         rfqVendors={rfq.vendors}
                     />
@@ -662,7 +710,7 @@ MIDSA Procurement`;
                                     </p>
                                 </div>
                             </div>
-                            {canManage && (
+                            {canApproveAward && (
                                 <div className="flex flex-wrap gap-2">
                                     <button
                                         onClick={() => handleDownloadAwardLetter(false)}
@@ -736,7 +784,7 @@ MIDSA Procurement`;
                                                 responses={vendorResponses}
                                                 lineCount={rfq.lineItems.length}
                                                 deadline={rfq.submissionDeadline}
-                                                canManage={canManage && !isFinal}
+                                                canManage={canLogResponse && !isFinal}
                                                 onLog={() => { setLogVendor(v); setLogDefaultPr(rfq.lineItems[0]?.prId); }}
                                                 onEdit={() => { setLogVendor(v); setLogDefaultPr(rfq.lineItems[0]?.prId); }}
                                                 onRemind={() => handleSendReminder(v)}
@@ -815,9 +863,9 @@ MIDSA Procurement`;
                                                                             onClick={() => { setLogVendor(v); setLogDefaultPr(li.prId); }}
                                                                             className="text-gray-300 hover:text-blue-500 text-xs"
                                                                             title={`Log response for ${v.vendorName} - ${li.itemName}`}
-                                                                            disabled={isFinal || !canManage}
+                                                                            disabled={isFinal || !canLogResponse}
                                                                         >
-                                                                            {!isFinal && canManage ? '+ Log' : '—'}
+                                                                            {!isFinal && canLogResponse ? '+ Log' : '—'}
                                                                         </button>
                                                                     )}
                                                                 </td>
@@ -838,15 +886,17 @@ MIDSA Procurement`;
                                                             )}
                                                         </td>
                                                         <td className="p-2 text-right">
-                                                            {!isFinal && canManage && (
+                                                            {!isFinal && (canLogResponse || canRecommend) && (
                                                                 <div className="flex gap-1 justify-end flex-wrap">
-                                                                    <button
-                                                                        onClick={() => { setLogVendor(v); setLogDefaultPr(rfq.lineItems[0]?.prId); }}
-                                                                        className="text-xs text-blue-600 hover:underline"
-                                                                    >
-                                                                        Log
-                                                                    </button>
-                                                                    {total > 0 && (
+                                                                    {canLogResponse && (
+                                                                        <button
+                                                                            onClick={() => { setLogVendor(v); setLogDefaultPr(rfq.lineItems[0]?.prId); }}
+                                                                            className="text-xs text-blue-600 hover:underline"
+                                                                        >
+                                                                            Log
+                                                                        </button>
+                                                                    )}
+                                                                    {canRecommend && total > 0 && (
                                                                         <button
                                                                             onClick={() => setRecommendVendor(v)}
                                                                             className="text-xs text-emerald-600 hover:underline ml-1"
@@ -969,16 +1019,22 @@ MIDSA Procurement`;
                             </dl>
                         </div>
 
-                        {/* Actions card */}
-                        {canManage && (
+                        {/* Actions card — outer wrapper opens only when the user
+                            has at least one actionable permission. Each individual
+                            button below carries its own specific gate so PO doesn't
+                            see PH-only buttons (Approve/Reject/Cancel) even though
+                            both roles see the card itself. */}
+                        {canActOnRfq && (
                             <div className="bg-white p-6 rounded-xl shadow-md space-y-3">
                                 <h3 className="font-semibold mb-2">Actions</h3>
 
-                                {/* Procurement-head approval flow
-                                 *  RFQ approval is a procurement-side decision. Procurement head (or admin)
-                                 *  approves/rejects here. Controller/finance see a read-only notice —
-                                 *  they can view pending RFQs for oversight but cannot approve them. */}
-                                {rfq.status === 'PENDING_APPROVAL' && (role === 'procurement' || role === 'admin') && (
+                                {/* Procurement-head approval flow.
+                                 *  Approve = `rfq.approve.award` (head-only).
+                                 *  Reject  = `rfq.reject` (head-only).
+                                 *  Officers without approve permission still see the
+                                 *  Pending-Approval state via the amber banner above
+                                 *  the Actions card — they just can't stamp it. */}
+                                {rfq.status === 'PENDING_APPROVAL' && canApproveAward && (
                                     <>
                                         <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm text-yellow-800 mb-2">
                                             This RFQ is awaiting your approval as Procurement Head.
@@ -989,22 +1045,30 @@ MIDSA Procurement`;
                                         >
                                             Approve Award
                                         </button>
-                                        <button
-                                            onClick={handleControllerReject}
-                                            className="w-full py-2 px-4 border border-orange-300 text-orange-600 rounded-md text-sm hover:bg-orange-50"
-                                        >
-                                            Reject (Send Back)
-                                        </button>
+                                        {canRejectAward && (
+                                            <button
+                                                onClick={handleControllerReject}
+                                                className="w-full py-2 px-4 border border-orange-300 text-orange-600 rounded-md text-sm hover:bg-orange-50"
+                                            >
+                                                Reject (Send Back)
+                                            </button>
+                                        )}
                                     </>
                                 )}
-                                {rfq.status === 'PENDING_APPROVAL' && role === 'controller' && (
+                                {/* Finance-side read-only notice — only renders for
+                                    finance users (legacy `controller` maps to
+                                    finance_head and also satisfies the check). PH
+                                    excluded explicitly so they don't see the
+                                    "you're read-only" notice while approving. */}
+                                {rfq.status === 'PENDING_APPROVAL' && canFinanceView && !canApproveAward && (
                                     <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-700">
                                         Awaiting Procurement Head approval. Finance is read-only for RFQ awards.
                                     </div>
                                 )}
 
-                                {/* Send / resend emails with preview */}
-                                {!isFinal && (rfq.status === 'DRAFT' || rfq.status === 'SENT') && (
+                                {/* Send / resend emails with preview — gated by
+                                    `rfq.send` (both PH and PO have it). */}
+                                {canSend && !isFinal && (rfq.status === 'DRAFT' || rfq.status === 'SENT') && (
                                     <button
                                         onClick={() => setShowPreview(true)}
                                         className="w-full py-2 px-4 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
@@ -1014,7 +1078,8 @@ MIDSA Procurement`;
                                     </button>
                                 )}
 
-                                {/* Preview / download vendor PDFs */}
+                                {/* Preview / download vendor PDFs — available to
+                                    anyone viewing the Actions card; pure read action. */}
                                 {!isFinal && (
                                     <button
                                         onClick={() => setShowPreview(true)}
@@ -1026,8 +1091,11 @@ MIDSA Procurement`;
                                     </button>
                                 )}
 
-                                {/* Cancel */}
-                                {!isFinal && (
+                                {/* Cancel RFQ — head-only (`rfq.cancel`). Officers
+                                    creating an RFQ they later regret must escalate
+                                    to the head to cancel; preserves the head's
+                                    oversight over RFQ-level state changes. */}
+                                {canCancelRfq && !isFinal && (
                                     <button
                                         onClick={handleCancel}
                                         className="w-full py-2 px-4 border border-red-300 text-red-600 rounded-md text-sm hover:bg-red-50"
@@ -1035,6 +1103,23 @@ MIDSA Procurement`;
                                         Cancel RFQ
                                     </button>
                                 )}
+                            </div>
+                        )}
+
+                        {/* Read-only notice for officers viewing an RFQ they
+                            don't own. Mirrors the PR-detail read-only banner —
+                            communicates intent rather than just hiding the
+                            Actions card silently. An officer landing here from
+                            a stale link or curiosity sees a clear explanation
+                            of why they can't act. */}
+                        {isOfficerReadOnly && (
+                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-sm text-amber-800">
+                                <div className="font-semibold mb-1">Read-only view</div>
+                                <div>
+                                    This RFQ isn't linked to any PR currently assigned to you.
+                                    Ask the procurement head to reassign a linked requisition to
+                                    you before working on it.
+                                </div>
                             </div>
                         )}
 

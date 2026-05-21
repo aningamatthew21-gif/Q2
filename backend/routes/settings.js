@@ -25,7 +25,7 @@ router.get('/taxes', catchAsync(async (req, res) => {
   res.json({ success: true, data: { taxArray } });
 }));
 
-router.post('/taxes', requireRole('controller', 'admin'), catchAsync(async (req, res) => {
+router.post('/taxes', requirePermission('tax.edit'), catchAsync(async (req, res) => {
   const { taxArray } = req.body;
 
   // ── Input validation ──────────────────────────────────────
@@ -209,7 +209,7 @@ router.get('/company', catchAsync(async (req, res) => {
   res.json({ success: true, data });
 }));
 
-router.post('/company', catchAsync(async (req, res) => {
+router.post('/company', requirePermission('company.edit'), catchAsync(async (req, res) => {
   const data = req.body;
 
   await transaction(async (conn) => {
