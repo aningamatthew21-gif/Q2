@@ -117,20 +117,30 @@ router.get('/:id', catchAsync(async (req, res) => {
     }
   }
 
-  // Pull recent procurement events for this PR
+  // Pull recent procurement events for this PR. PAYLOAD is included so
+  // the frontend can render rich context (rejection reason, recommended
+  // vendor, award total) under each event.
   const evRes = await execute(
-    `SELECT EVENT_ID, EVENT_TIME, EVENT_TYPE, ACTOR
+    `SELECT EVENT_ID, EVENT_TIME, EVENT_TYPE, ACTOR, PAYLOAD
      FROM QA_PROCUREMENT_EVENTS
      WHERE ENTITY_TYPE = 'PR' AND ENTITY_ID = :id
      ORDER BY EVENT_TIME DESC FETCH FIRST 50 ROWS ONLY`,
     { id }
   );
-  const events = (evRes.rows || []).map(r => ({
-    id: r.EVENT_ID,
-    time: r.EVENT_TIME,
-    type: r.EVENT_TYPE,
-    actor: r.ACTOR
-  }));
+  const events = (evRes.rows || []).map(r => {
+    let payload = null;
+    if (r.PAYLOAD) {
+      try { payload = JSON.parse(r.PAYLOAD); }
+      catch (_e) { payload = null; }
+    }
+    return {
+      id: r.EVENT_ID,
+      time: r.EVENT_TIME,
+      type: r.EVENT_TYPE,
+      actor: r.ACTOR,
+      payload
+    };
+  });
 
   res.json({ success: true, data: { ...pr, invoice, events } });
 }));
@@ -319,21 +329,80 @@ router.put('/:id', requirePermission('pr.create'), catchAsync(async (req, res) =
 
 /**
  * POST /api/purchase-requisitions/:id/cancel
+ *
+ * Module 3 enhancement — accepts a controlled `cancellationReason` enum
+ * + optional `cancellationNotes` free text. Persists into the dedicated
+ * columns added by migrate_module3, AND keeps the original free-text
+ * `reason` writing to NOTES for backward compatibility with the existing
+ * front-end fallback that reads NOTES on cancelled PRs.
+ *
+ * Body:
+ *   {
+ *     cancellationReason?: 'DUPLICATE' | 'STOCK_REAPPEARED' | 'CUSTOMER_CANCELLED'
+ *                        | 'VENDOR_UNAVAILABLE' | 'BUDGET_EXCEEDED'
+ *                        | 'LEAD_TIME_UNACCEPTABLE' | 'SOURCED_INTERNALLY' | 'OTHER'
+ *     cancellationNotes?:  string (free text; saved alongside the code)
+ *     reason?:             string (legacy — written to NOTES for back-compat)
+ *   }
  */
+const VALID_CANCELLATION_REASONS = new Set([
+  'DUPLICATE', 'STOCK_REAPPEARED', 'CUSTOMER_CANCELLED',
+  'VENDOR_UNAVAILABLE', 'BUDGET_EXCEEDED',
+  'LEAD_TIME_UNACCEPTABLE', 'SOURCED_INTERNALLY', 'OTHER'
+]);
 router.post('/:id/cancel', requirePermission('pr.cancel'), catchAsync(async (req, res) => {
   const { id } = req.params;
-  const reason = req.body?.reason || 'Cancelled by procurement';
+  const body = req.body || {};
+
+  // Validate the controlled enum if supplied. Older callers that only
+  // send `reason` (free text) keep working — we map them to 'OTHER' so
+  // the report-friendly column always has a value.
+  let cancellationReason = body.cancellationReason;
+  if (cancellationReason && !VALID_CANCELLATION_REASONS.has(cancellationReason)) {
+    return res.status(400).json({
+      success: false,
+      error: `Invalid cancellationReason. Must be one of: ${Array.from(VALID_CANCELLATION_REASONS).join(', ')}.`
+    });
+  }
+  if (!cancellationReason) cancellationReason = 'OTHER';
+
+  // NOTES still gets the human-readable reason for back-compat with the
+  // existing PR detail UI that displays NOTES on cancelled PRs.
+  const humanReason = body.cancellationNotes
+    || body.reason
+    || `Cancelled (${cancellationReason})`;
+
   await transaction(async (conn) => {
     await conn.execute(
       `UPDATE QA_PURCHASE_REQUISITIONS
-       SET STATUS = 'CANCELLED', UPDATED_AT = SYSTIMESTAMP, NOTES = :n
-       WHERE PR_ID = :id`,
-      { id, n: reason }
+          SET STATUS              = 'CANCELLED',
+              UPDATED_AT          = SYSTIMESTAMP,
+              NOTES               = :n,
+              CANCELLATION_REASON = :crsn,
+              CANCELLATION_NOTES  = :cnotes,
+              CANCELLED_AT        = SYSTIMESTAMP,
+              CANCELLED_BY        = :cby
+        WHERE PR_ID = :id`,
+      {
+        id,
+        n:      humanReason,
+        crsn:   cancellationReason,
+        cnotes: body.cancellationNotes || null,
+        cby:    req.user.email
+      }
     );
     await conn.execute(`
       INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
       VALUES ('PR_CANCELLED','PR',:id,:actor,:payload)
-    `, { id, actor: req.user.email, payload: JSON.stringify({ reason }) });
+    `, {
+      id,
+      actor: req.user.email,
+      payload: JSON.stringify({
+        cancellationReason,
+        cancellationNotes: body.cancellationNotes || null,
+        legacyReason:      body.reason || null
+      })
+    });
   });
   emitToAll('pr:updated');
   res.json({ success: true });

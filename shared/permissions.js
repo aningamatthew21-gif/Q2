@@ -184,6 +184,22 @@ export const ACTIONS = Object.freeze({
   'targets.edit':                'Set / update performance targets',
   'company.edit':                'Edit company invoice template data (header / footer / bank account)',
 
+  // ── Collections (Module 2) ─────────────────────────────────────────
+  // New actions for the accounts-receivable / payment-application sub-
+  // system. Additive — none of the existing grants are modified.
+  'payment.log':                 'Log a customer payment against an invoice',
+  'payment.reverse':             'Reverse a previously-logged payment',
+  'payment.apply.unallocated':   'Apply an unallocated payment to one or more invoices',
+  'collections.action.log':      'Log a collection follow-up (call / email / promise)',
+  'customer.statement.read':     'View a customer statement / ledger',
+  'customer.statement.send':     'Send a customer statement (PDF download in v1)',
+  'wht.config.edit':             'Edit withholding-tax types and profiles (admin)',
+
+  // ── Procurement Goods Receipts (Module 3) ───────────────────────────
+  'goods_receipt.log':           'Log a goods-receipt event against an awarded PR',
+  'goods_receipt.return':        'Log a return / RMA against a previous receipt',
+  'vendor_scorecard.read':       'View vendor performance scorecards',
+
   // ── System / admin ─────────────────────────────────────────
   'user.manage':                 'Provision / promote / deactivate users',
   'user.impersonate':            'Act-as another user (audited)',
@@ -229,7 +245,19 @@ const FINANCE_OFFICER_ACTIONS = [
   'system.invoice_counter.edit',
   // Audit (own scope)
   'audit.read.own',
-  'reports.run.finance'             // RO export
+  'reports.run.finance',            // RO export
+  // ── Module 2 — Collections capabilities granted to finance officer ──
+  // Per the post-Module-2 adjustments: officer now also has reverse
+  // (constrained by a 24h window enforced server-side — anything older
+  // requires the head). WHT configuration also drops down to officer
+  // tier so finance can adjust rates without going to admin.
+  'payment.log',
+  'payment.reverse',
+  'payment.apply.unallocated',
+  'collections.action.log',
+  'customer.statement.read',
+  'customer.statement.send',
+  'wht.config.edit'
 ];
 
 const FINANCE_HEAD_ACTIONS = [
@@ -252,11 +280,17 @@ const FINANCE_HEAD_ACTIONS = [
   'rfq.escalate',                   // can flag a stalled procurement workflow
   'procurement.settings.read',      // cross-dept visibility (preserves prior behaviour)
   'procurement.settings.edit',      // finance head historically could edit thresholds
+  // Module 3 — finance head reads vendor scorecards for spend-risk oversight
+  'vendor_scorecard.read',
   'audit.read.all',
   'reports.run.sales',
   'reports.run.procurement',
   // Targets — heads set departmental targets
   'targets.edit',
+  // ── Module 2 — Collections permissions live on FINANCE_OFFICER_ACTIONS
+  // (spread above). Head inherits everything. The 24-hour reverse
+  // window for officers is enforced server-side in collections.js;
+  // head has no time restriction.
   // Signatures
   'signature.manage'
 ];
@@ -288,6 +322,13 @@ const SALES_HEAD_ACTIONS = [
   'targets.edit',
   'system.invoice_counter.edit',    // sales-head approval mints the permanent invoice ID
   'audit.read.department',
+  // ── Module 2 — Sales head can view + send customer statements ──────
+  // and log collection follow-up actions for their team's customers.
+  // Payment LOGGING stays finance-only (sales tells the customer they
+  // owe; finance records the receipt).
+  'customer.statement.read',
+  'customer.statement.send',
+  'collections.action.log',
   'signature.manage'
 ];
 
@@ -296,6 +337,12 @@ const PROCUREMENT_OFFICER_ACTIONS = [
   'pr.read', 'pr.create', 'pr.cancel', 'pr.fulfill',
   'rfq.read', 'rfq.create', 'rfq.send', 'rfq.response.log', 'rfq.recommend',
   'rfq.escalate',                   // officers can flag stalled RFQs upward
+  // ── Module 3 — Goods Receipts ────────────────────────────────────
+  // Officers receive goods at the warehouse and log RMAs as they
+  // surface; head inherits both. Vendor scorecard is restricted to
+  // the head + finance head (analytical view, not operational).
+  'goods_receipt.log',
+  'goods_receipt.return',
   'vendor.read', 'vendor.write',
   'customer.read',
   'inventory.read',
@@ -311,6 +358,8 @@ const PROCUREMENT_HEAD_ACTIONS = [
   'rfq.cancel',
   'pr.assign',                      // head decides who works which PR; officer cannot reassign
   'vendor.deactivate',
+  // ── Module 3 — Vendor scorecard read (analytical view) ──────────
+  'vendor_scorecard.read',
   'procurement.settings.edit',      // head/admin only — officer can read but not edit thresholds
   'audit.read.department',
   'signature.manage'
@@ -352,6 +401,15 @@ export const PAGE_PERMISSIONS = Object.freeze({
   controllerDashboard:          'dashboard.finance.read',
   invoices:                     'invoice.read.all',
   invoiceEditor:                'invoice.read.all',
+  // Module 2 — Collections workbench is finance-primary, but sales heads
+  // also have customer.statement.read so they can dip in to check their
+  // customers' aging during a call.
+  collectionsWorkbench:         'customer.statement.read',
+  customerStatement:            'customer.statement.read',
+  // Module 3 — Goods Receipts list (procurement only) + Vendor Scorecard
+  // (procurement head + finance head for cross-dept spend oversight).
+  goodsReceipts:                'goods_receipt.log',
+  vendorScorecard:              'vendor_scorecard.read',
 
   // Procurement
   procurementDashboard:         'dashboard.procurement.read',
@@ -374,6 +432,40 @@ export const PAGE_PERMISSIONS = Object.freeze({
   // Settings). All other roles with inventory.read also pass — harmless,
   // they have their own paths to the same data.
   salesPriceList:               'inventory.read',
+
+  // Module 5 — Reports
+  // Hub page is open to anyone with ANY report permission — the hub itself
+  // filters which department cards render based on the user's role, so we
+  // gate the hub by a permissive check (sales.run.* is on every internal
+  // role) and let the per-report pages enforce their own department gates.
+  reportsHub:                   'reports.run.sales',
+  // Finance reports — gated by reports.run.finance (finance officer/head, admin)
+  reportArAging:                'reports.run.finance',
+  reportDsoTrend:               'reports.run.finance',
+  reportCashCollections:        'reports.run.finance',
+  reportSalesRegister:          'reports.run.finance',
+  reportVatCompliance:          'reports.run.finance',
+  reportWhtCollected:           'reports.run.finance',
+  reportCustomerProfitability:  'reports.run.finance',
+  reportBadDebtProvision:       'reports.run.finance',
+  // Sales reports — gated by reports.run.sales
+  reportSalesPipeline:          'reports.run.sales',
+  reportQuoteConversion:        'reports.run.sales',
+  reportRevenueVsTarget:        'reports.run.sales',
+  reportSalesLeaderboard:       'reports.run.sales',
+  reportQuoteAging:             'reports.run.sales',
+  reportWinLoss:                'reports.run.sales',
+  reportTopCustomers:           'reports.run.sales',
+  reportTopProducts:            'reports.run.sales',
+  // Procurement reports — gated by reports.run.procurement
+  reportPrBacklog:              'reports.run.procurement',
+  reportRfqCycleTime:           'reports.run.procurement',
+  reportRfqsAttention:          'reports.run.procurement',
+  reportSpendByVendor:          'reports.run.procurement',
+  reportSpendByCategory:        'reports.run.procurement',
+  reportOverrideAudit:          'reports.run.procurement',
+  reportLeadTimeAccuracy:       'reports.run.procurement',
+  reportPrCancellation:         'reports.run.procurement',
 
   // System
   auditTrail:                   'audit.read.own',

@@ -48,6 +48,10 @@ router.get('/', catchAsync(async (req, res) => {
     },
     markupOverridePercent: row.MARKUP_OVERRIDE || null,
     pricingTier: row.PRICING_TIER || 'standard',
+    // Module 1 — item taxonomy. Free text initially; can normalise to a
+    // master list later if vocabulary fragmentation becomes a problem.
+    itemCategory: row.ITEM_CATEGORY || '',
+    itemSubcategory: row.ITEM_SUBCATEGORY || '',
     updatedAt: row.UPDATED_AT,
     updatedBy: row.UPDATED_BY
   }));
@@ -120,13 +124,15 @@ router.post('/', requirePermission('inventory.write'), catchAsync(async (req, re
       UNIT_COST, WEIGHT_KG, DIM_LENGTH, DIM_WIDTH, DIM_HEIGHT,
       FREIGHT_PER_UNIT, DUTY_PER_UNIT, INSURANCE_PER_UNIT, PACKAGING_PER_UNIT, OTHER_PER_UNIT,
       HANDLING_PER_UNIT, TRANSFER_ADMIN_PER_UNIT,
-      MARKUP_OVERRIDE, PRICING_TIER, UPDATED_BY
+      MARKUP_OVERRIDE, PRICING_TIER, UPDATED_BY,
+      ITEM_CATEGORY, ITEM_SUBCATEGORY
     ) VALUES (
       :sku, :name, :vendor, :stock, :price, :restock, :curr, :itype,
       :ucost, :wkg, :dl, :dw, :dh,
       :fpu, :dpu, :ipu, :ppu, :opu,
       :hpu, :tapu,
-      :mo, :pt, :uby
+      :mo, :pt, :uby,
+      :ic, :isc
     )
   `, {
     sku: item.id,
@@ -151,7 +157,10 @@ router.post('/', requirePermission('inventory.write'), catchAsync(async (req, re
     tapu: cost.transferAdminPerUnit || 0,
     mo: item.markupOverridePercent || null,
     pt: item.pricingTier || 'standard',
-    uby: req.user.email
+    uby: req.user.email,
+    // Module 1 — item taxonomy
+    ic:  item.itemCategory || null,
+    isc: item.itemSubcategory || null
   });
 
   emitToAll('inventory:updated');
@@ -184,6 +193,8 @@ router.post('/bulk', requirePermission('inventory.write'), catchAsync(async (req
   }
 
   // Upsert: update when the SKU already exists, insert otherwise.
+  // Module 1 — ITEM_CATEGORY + ITEM_SUBCATEGORY now part of both UPDATE
+  // and INSERT branches so CSV imports can populate the new taxonomy.
   const MERGE_SQL = `
     MERGE INTO QA_INVENTORY t
     USING (SELECT :sku AS SKU FROM DUAL) s
@@ -196,17 +207,20 @@ router.post('/bulk', requirePermission('inventory.write'), catchAsync(async (req
       FREIGHT_PER_UNIT = :fpu, DUTY_PER_UNIT = :dpu, INSURANCE_PER_UNIT = :ipu,
       PACKAGING_PER_UNIT = :ppu, OTHER_PER_UNIT = :opu, HANDLING_PER_UNIT = :hpu,
       TRANSFER_ADMIN_PER_UNIT = :tapu, MARKUP_OVERRIDE = :mo, PRICING_TIER = :pt,
+      ITEM_CATEGORY = :ic, ITEM_SUBCATEGORY = :isc,
       UPDATED_AT = SYSTIMESTAMP, UPDATED_BY = :uby
     WHEN NOT MATCHED THEN INSERT (
       SKU, ITEM_NAME, VENDOR, STOCK, PRICE, RESTOCK_LIMIT, CURRENCY, ITEM_TYPE,
       UNIT_COST, WEIGHT_KG, DIM_LENGTH, DIM_WIDTH, DIM_HEIGHT,
       FREIGHT_PER_UNIT, DUTY_PER_UNIT, INSURANCE_PER_UNIT, PACKAGING_PER_UNIT, OTHER_PER_UNIT,
-      HANDLING_PER_UNIT, TRANSFER_ADMIN_PER_UNIT, MARKUP_OVERRIDE, PRICING_TIER, UPDATED_BY
+      HANDLING_PER_UNIT, TRANSFER_ADMIN_PER_UNIT, MARKUP_OVERRIDE, PRICING_TIER, UPDATED_BY,
+      ITEM_CATEGORY, ITEM_SUBCATEGORY
     ) VALUES (
       :sku, :name, :vendor, :stock, :price, :restock, :curr, :itype,
       :ucost, :wkg, :dl, :dw, :dh,
       :fpu, :dpu, :ipu, :ppu, :opu,
-      :hpu, :tapu, :mo, :pt, :uby
+      :hpu, :tapu, :mo, :pt, :uby,
+      :ic, :isc
     )
   `;
 
@@ -250,7 +264,9 @@ router.post('/bulk', requirePermission('inventory.write'), catchAsync(async (req
           tapu:    Number(cost.transferAdminPerUnit) || 0,
           mo:      (mo === null || mo === undefined || mo === '') ? null : Number(mo),
           pt:      item.pricingTier || 'standard',
-          uby:     email
+          uby:     email,
+          ic:      item.itemCategory || null,
+          isc:     item.itemSubcategory || null
         }, { autoCommit: false });
         processed++;
       } catch (err) {
@@ -290,7 +306,12 @@ router.put('/:id', requirePermission('inventory.write'), catchAsync(async (req, 
     name: 'ITEM_NAME', vendor: 'VENDOR', stock: 'STOCK', price: 'PRICE',
     restockLimit: 'RESTOCK_LIMIT', currency: 'CURRENCY', itemType: 'ITEM_TYPE',
     unitCost: 'UNIT_COST', weightKg: 'WEIGHT_KG',
-    markupOverridePercent: 'MARKUP_OVERRIDE', pricingTier: 'PRICING_TIER'
+    markupOverridePercent: 'MARKUP_OVERRIDE', pricingTier: 'PRICING_TIER',
+    // Module 1 — item taxonomy fields. Free text from the modal; whatever
+    // the user types persists. Future Module 5 can normalise to a master
+    // list if vocabulary fragmentation becomes a problem.
+    itemCategory: 'ITEM_CATEGORY',
+    itemSubcategory: 'ITEM_SUBCATEGORY'
   };
 
   for (const [key, dbCol] of Object.entries(mappings)) {

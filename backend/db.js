@@ -51,10 +51,31 @@ async function initPool() {
   // Set global defaults for all executions
   oracledb.outFormat    = oracledb.OUT_FORMAT_OBJECT; // Row as JS object, not array
   oracledb.autoCommit   = true;
+
+  // CLOB → STRING / BLOB → BUFFER auto-conversion at fetch time.
+  // We set BOTH `fetchTypeMap` AND `fetchAsBuffer`/`fetchAsString`
+  // because they cover slightly different code paths in oracledb v6:
+  //
+  //   - fetchTypeMap is the modern API but in practice some queries
+  //     receive a raw Lob descriptor anyway (especially when a query
+  //     also sets per-column `fetchInfo`, which appears to suppress
+  //     the type-map fallback for non-listed columns).
+  //   - fetchAsBuffer/fetchAsString are the legacy globals — they
+  //     force an independent JS-owned Buffer/String copy of the LOB
+  //     contents, NOT a view into the connection's internal memory.
+  //
+  // The independent-copy guarantee is critical: db.js#execute() releases
+  // the pooled connection in `finally` BEFORE the caller reads
+  // row.FILE_DATA. If the Buffer is a view over connection memory,
+  // those bytes get zeroed when the pool reclaims the connection —
+  // producing the infamous "131,484 zero bytes" download corruption
+  // bug we hit on attachments.
   oracledb.fetchTypeMap = new Map([
-    [oracledb.CLOB,      { type: oracledb.STRING }],  // Auto-fetch CLOBs as strings
-    [oracledb.BLOB,      { type: oracledb.BUFFER }],  // Auto-fetch BLOBs as Buffer
+    [oracledb.CLOB, { type: oracledb.STRING }],
+    [oracledb.BLOB, { type: oracledb.BUFFER }],
   ]);
+  oracledb.fetchAsBuffer = [oracledb.BLOB];
+  oracledb.fetchAsString = [oracledb.CLOB];
 
   console.log('✅ [DB] Oracle connection pool initialized');
   console.log(`   User: ${process.env.DB_USER}`);
@@ -156,4 +177,41 @@ async function ping() {
   }
 }
 
-module.exports = { initPool, execute, transaction, closePool, ping, lobToString };
+/**
+ * safeSqlIdent — defensive guard for any place we string-interpolate an
+ * SQL identifier (table, column, ORDER BY direction). Returns the value
+ * unchanged if it matches the Oracle-identifier grammar; THROWS otherwise.
+ *
+ * Use anywhere a `${value}` is splice into SQL outside of bind placeholders:
+ *
+ *   const col = safeSqlIdent(allowedColumns[k]);          // throws if k absent
+ *   `UPDATE t SET ${col} = :v WHERE id = :id`             // safe
+ *   `... ORDER BY ${safeSqlIdent(orderCol)} ${safeSqlIdent(dir, 'dir')}`
+ *
+ * Catches: SQL-injection regressions where a future dev forgets to map
+ * user input → hardcoded column name. Today no caller is vulnerable
+ * (audit 2026-05-25 confirmed), but this exists so any future
+ * regression fails LOUDLY at first request rather than silently in
+ * production. Per OWASP A03 SQL-Injection Prevention Cheat Sheet —
+ * "input validation or query redesign is the most appropriate defense"
+ * when bind placeholders can't be used (column/table names).
+ *
+ * `kind` defaults to 'ident' (alphanumeric + underscore, max 30 chars
+ * per Oracle 12c identifier length). For ORDER BY direction pass 'dir'.
+ */
+function safeSqlIdent(value, kind = 'ident') {
+  const s = String(value || '');
+  if (kind === 'dir') {
+    if (s.toUpperCase() === 'ASC' || s.toUpperCase() === 'DESC') return s.toUpperCase();
+    throw new Error(`safeSqlIdent: invalid sort direction "${value}" (expected ASC or DESC)`);
+  }
+  // Oracle identifier grammar: A-Z, 0-9, _, $, # — case-insensitive,
+  // must start with a letter, max 30 chars (12c) / 128 chars (12.2+).
+  // We're strict: alphanumeric + underscore only, max 30 chars.
+  if (!/^[A-Za-z][A-Za-z0-9_]{0,29}$/.test(s)) {
+    throw new Error(`safeSqlIdent: invalid identifier "${value}" — only [A-Za-z0-9_] allowed, max 30 chars`);
+  }
+  return s;
+}
+
+module.exports = { initPool, execute, transaction, closePool, ping, lobToString, safeSqlIdent };

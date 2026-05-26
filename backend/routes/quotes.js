@@ -42,6 +42,9 @@ router.get('/', catchAsync(async (req, res) => {
     quotes.push({
       id: quoteId,
       status: row.STATUS,
+      // Module 4 — controlled rejection vocabulary (NULL until set)
+      rejectionReasonCode: row.REJECTION_REASON_CODE || null,
+      rejectionNotes:      row.REJECTION_NOTES || null,
       createdBy: row.CREATED_BY,
       customerId: row.CUSTOMER_ID,
       customerName: row.CUSTOMER_NAME,
@@ -185,7 +188,11 @@ router.put('/:id', requirePermission('quote.create'), catchAsync(async (req, res
 
   const mappings = {
     status: 'STATUS',
-    convertedToInvoice: 'CONVERTED_TO_INV'
+    convertedToInvoice: 'CONVERTED_TO_INV',
+    // Module 4 — controlled rejection vocabulary. Optional; the
+    // existing free-text quote workflow still works without them.
+    rejectionReasonCode: 'REJECTION_REASON_CODE',
+    rejectionNotes:      'REJECTION_NOTES'
   };
 
   for (const [key, dbCol] of Object.entries(mappings)) {

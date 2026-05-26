@@ -2,13 +2,24 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Search, FileText, Eye, Mail, Phone, MapPin, User,
-  TrendingUp, FileQuestion, Pencil, ExternalLink, Calendar, AlertCircle
+  TrendingUp, FileQuestion, Pencil, ExternalLink, Calendar, AlertCircle,
+  Wallet
 } from 'lucide-react';
 import api from '../api';
 import { formatCurrency } from '../utils/formatting';
 import PreviewModal from '../components/PreviewModal';
 import CustomerModal from '../components/modals/CustomerModal';
+import LogPaymentModal from '../components/modals/LogPaymentModal';
 import { useRealtimeInvoices } from '../hooks/useRealtimeInvoices';
+import { useApp } from '../context/AppContext';
+import { can } from '../utils/permissions';
+
+// Mirrors backend PAYMENT_ELIGIBLE_STATUSES — used to gate the per-row
+// Log Payment button so users can't even try on an invoice the server
+// would reject.
+const PAYMENT_ELIGIBLE_STATUSES = new Set([
+  'Awaiting Acceptance', 'Customer Accepted', 'Partially Paid', 'Paid'
+]);
 import {
   Breadcrumb, PageTitle, Card, Button, MetricTile,
   StatusBadge, Tabs, FilterChips, EmptyState, SortableHeader, useSortable
@@ -40,7 +51,10 @@ const CustomerPortal = ({ navigateTo, customerId }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [previewPayload, setPreviewPayload] = useState(null);
   const [isEditingCustomer, setIsEditingCustomer] = useState(false);
+  const [logPaymentInvoice, setLogPaymentInvoice] = useState(null);
   const { data: invoices, loading: invoicesLoading } = useRealtimeInvoices(null, customerId);
+  const { appUser } = useApp();
+  const canLogPayment = can(appUser, 'payment.log');
 
   useEffect(() => {
     if (!customerId) return;
@@ -153,7 +167,18 @@ const CustomerPortal = ({ navigateTo, customerId }) => {
                 <ContactChip icon={<MapPin />}  text={customer.location || customer.address || 'No location'} />
               </div>
             </div>
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 flex gap-2">
+              {/* Module 2 — quick jump to the per-customer statement page.
+                  Gated by VALID_PAGES — anyone without customer.statement.read
+                  will get the Forbidden screen on navigation, but the button
+                  is harmless to show universally (cheap UX win for finance). */}
+              <Button
+                variant="ghost"
+                iconLeft={<FileText />}
+                onClick={() => navigateTo('customerStatement', { customerId })}
+              >
+                View Statement
+              </Button>
               <Button variant="primary" iconLeft={<Pencil />} onClick={() => setIsEditingCustomer(true)}>
                 Edit customer
               </Button>
@@ -239,9 +264,39 @@ const CustomerPortal = ({ navigateTo, customerId }) => {
                       <td className="px-4 py-2 text-right font-mono-num text-[12.5px] font-semibold text-n-800">{formatCurrency(inv.currency || 'GHS', inv.total)}</td>
                       <td className="px-4 py-2"><StatusBadge value={inv.status} /></td>
                       <td className="px-4 py-2 text-right">
-                        <Button size="sm" variant="subtle" iconLeft={<Eye />} onClick={(e) => { e.stopPropagation(); handleViewInvoice(inv); }}>
-                          View
-                        </Button>
+                        <div className="flex gap-1 justify-end">
+                          {/* Module 2 — per-row Log Payment. Gated by both
+                              permission AND eligible invoice status. The
+                              ledger and Reverse action live inside the
+                              InvoiceEditor (reached via the View button),
+                              keeping the row toolbar from getting noisy. */}
+                          {canLogPayment && PAYMENT_ELIGIBLE_STATUSES.has(inv.status) && Number(inv.balanceDue ?? (inv.total - (inv.amountPaid || 0))) > 0.01 && (
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              iconLeft={<Wallet />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLogPaymentInvoice({
+                                  id: inv.id,
+                                  invoiceNumber: inv.approvedInvoiceId || inv.id,
+                                  total: inv.total,
+                                  amountPaid: inv.amountPaid,
+                                  balanceDue: inv.balanceDue ?? (inv.total - (inv.amountPaid || 0)),
+                                  currency: inv.currency || 'GHS',
+                                  subtotal: inv.subtotal,
+                                  customerId: inv.customerId || customerId,
+                                  customerName: inv.customerName || customer?.name
+                                });
+                              }}
+                            >
+                              Log Payment
+                            </Button>
+                          )}
+                          <Button size="sm" variant="subtle" iconLeft={<Eye />} onClick={(e) => { e.stopPropagation(); handleViewInvoice(inv); }}>
+                            View
+                          </Button>
+                        </div>
                       </td>
                     </motion.tr>
                   ))}
@@ -275,6 +330,14 @@ const CustomerPortal = ({ navigateTo, customerId }) => {
           onClose={() => setIsEditingCustomer(false)}
         />
       )}
+
+      {/* Module 2 — payment-logging modal triggered per-row */}
+      <LogPaymentModal
+        open={!!logPaymentInvoice}
+        onClose={() => setLogPaymentInvoice(null)}
+        invoice={logPaymentInvoice}
+        onLogged={() => setLogPaymentInvoice(null)}
+      />
     </div>
   );
 };

@@ -53,23 +53,54 @@ export function useSortable(rows, defaultKey = null, defaultDir = 'asc') {
 }
 
 /**
- * SortableHeader — renders a clickable <th> label with the active arrow.
+ * SortableHeader — renders a clickable label with the active arrow.
  *
- *   <th>
- *     <SortableHeader label="Date" sortKey="date" current={sortKey} dir={sortDir} onToggle={toggle} />
- *   </th>
+ * Two supported APIs (back-compat):
+ *
+ *   CANONICAL (must wrap in your own <th>):
+ *     <th>
+ *       <SortableHeader label="Date" sortKey="date" current={sortKey} dir={sortDir} onToggle={toggle} />
+ *     </th>
+ *
+ *   LEGACY (component renders its own <th>; uses children as label):
+ *     <SortableHeader keyName="date" sortKey={sortKey} sortDir={sortDir} onSort={toggle}>Date</SortableHeader>
+ *
+ * The two are distinguished by whether `keyName` is present. The legacy
+ * form is used by the Module 5 report pages — wrapping its own <th>
+ * means consumers can render it directly inside <tr> without invalid
+ * HTML (and without each report having to remember the wrapper).
  *
  * Pass `align="right"` for numeric / amount columns.
  */
 export default function SortableHeader({
-  label, sortKey, current, dir,
-  onToggle, align = 'left', className = ''
+  label,
+  children,
+  // canonical:
+  sortKey,
+  current,
+  dir,
+  onToggle,
+  // legacy aliases:
+  keyName,
+  sortDir,
+  onSort,
+  align = 'left',
+  className = ''
 }) {
-  const isActive = current === sortKey;
-  return (
+  // Disambiguate column-key vs active-key based on which API the caller used.
+  const isLegacy   = keyName !== undefined;
+  const columnKey  = isLegacy ? keyName : sortKey;
+  const activeKey  = isLegacy ? sortKey : current;
+  const activeDir  = sortDir ?? dir ?? 'asc';
+  const toggleFn   = onSort  ?? onToggle ?? (() => {});
+  const labelText  = label ?? children ?? '';
+
+  const isActive = activeKey === columnKey;
+
+  const buttonEl = (
     <button
       type="button"
-      onClick={() => onToggle(sortKey)}
+      onClick={() => toggleFn(columnKey)}
       className={clsx(
         'group inline-flex items-center gap-1 select-none',
         'text-[11px] font-semibold uppercase tracking-wider',
@@ -78,16 +109,32 @@ export default function SortableHeader({
         align === 'center' && 'w-full justify-center',
         className
       )}
-      aria-sort={isActive ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}
+      aria-sort={isActive ? (activeDir === 'desc' ? 'descending' : 'ascending') : 'none'}
     >
-      <span>{label}</span>
+      <span>{labelText}</span>
       <span className="w-3 h-3 inline-flex items-center justify-center">
         {isActive
-          ? (dir === 'desc'
+          ? (activeDir === 'desc'
               ? <ArrowDown className="w-3 h-3 text-accent" />
               : <ArrowUp className="w-3 h-3 text-accent" />)
           : <ChevronsUpDown className="w-3 h-3 text-n-300 group-hover:text-n-500" />}
       </span>
     </button>
   );
+
+  // Legacy callers render <SortableHeader> directly inside <tr>; wrap in
+  // a <th> so the HTML stays valid. Canonical callers already wrap.
+  if (isLegacy) {
+    return (
+      <th className={clsx(
+        'px-4 py-2 border-b border-n-200',
+        align === 'right' && 'text-right',
+        align === 'center' && 'text-center',
+        align === 'left' && 'text-left'
+      )}>
+        {buttonEl}
+      </th>
+    );
+  }
+  return buttonEl;
 }

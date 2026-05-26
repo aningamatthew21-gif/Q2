@@ -130,11 +130,26 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
   }, [invoices, debouncedSearchTerm, agingFilter, statusFilter]);
 
   // Sort hook — clicking a header cycles asc → desc → none
-  const sortableRows = useMemo(() => filteredInvoices.map(inv => ({
-    ...inv,
-    _amount:   Number(inv.total) || 0,
-    _date:     Date.parse(inv.date) || 0
-  })), [filteredInvoices]);
+  // Module 1 — `_due` and `_daysOverdue` projected so the new Due column
+  // sorts numerically (not as locale strings) and the overdue badge can
+  // be computed once per row instead of per-render.
+  const today = useMemo(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d;
+  }, []);
+  const sortableRows = useMemo(() => filteredInvoices.map(inv => {
+    const due = inv.dueDate ? new Date(inv.dueDate) : null;
+    const dueValid = due && !isNaN(due.getTime());
+    const daysOverdue = dueValid && Number(inv.balanceDue || inv.total || 0) > 0
+      ? Math.floor((today - due) / (1000 * 60 * 60 * 24))
+      : 0;
+    return {
+      ...inv,
+      _amount:   Number(inv.total) || 0,
+      _date:     Date.parse(inv.date) || 0,
+      _due:      dueValid ? due.getTime() : 0,
+      _daysOverdue: daysOverdue
+    };
+  }), [filteredInvoices, today]);
   const { sortKey, sortDir, toggle: toggleSort, sortedRows } = useSortable(sortableRows, '_date', 'desc');
 
   const years  = ['2023', '2024', '2025', '2026'];
@@ -283,6 +298,7 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
               <th className="bg-n-50 border-b border-n-200 px-3 py-2 text-left  w-[150px]"><SortableHeader label="Invoice"  sortKey="id"           current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
               <th className="bg-n-50 border-b border-n-200 px-3 py-2 text-left"><SortableHeader label="Customer"            sortKey="customerName" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
               <th className="bg-n-50 border-b border-n-200 px-3 py-2 text-left  w-[120px]"><SortableHeader label="Date"     sortKey="_date"         current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+              <th className="bg-n-50 border-b border-n-200 px-3 py-2 text-left  w-[120px]"><SortableHeader label="Due"      sortKey="_due"          current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
               <th className="bg-n-50 border-b border-n-200 px-3 py-2 text-right w-[140px]"><SortableHeader label="Amount"   sortKey="_amount"       current={sortKey} dir={sortDir} onToggle={toggleSort} align="right" /></th>
               <th className="bg-n-50 border-b border-n-200 px-3 py-2 text-left  w-[180px]"><SortableHeader label="Status"   sortKey="status"        current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
               <th className="bg-n-50 border-b border-n-200 px-3 py-2 text-right w-[140px]"><span className="text-[11px] font-semibold uppercase tracking-wider text-n-600">Actions</span></th>
@@ -290,12 +306,12 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
           </thead>
           <tbody>
             {loading && invoices.length === 0 ? (
-              <tr><td colSpan="6" className="p-8 text-center">
+              <tr><td colSpan="7" className="p-8 text-center">
                 <div className="inline-block w-8 h-8 rounded-full border-2 border-n-100 border-t-accent animate-spin" />
                 <div className="text-[13px] text-n-500 mt-2">Loading invoices…</div>
               </td></tr>
             ) : filteredInvoices.length === 0 ? (
-              <tr><td colSpan="6">
+              <tr><td colSpan="7">
                 <EmptyState
                   dense
                   icon={<FileText className="w-6 h-6" />}
@@ -328,6 +344,20 @@ const AllInvoices = ({ navigateTo, pageContext }) => {
                       <td className={`px-3 ${rowPad} font-mono-num text-[12.5px] text-n-800`}>{inv.approvedInvoiceId || inv.id}</td>
                       <td className={`px-3 ${rowPad} text-n-700 font-medium`}>{inv.customerName}</td>
                       <td className={`px-3 ${rowPad} text-n-600 text-[12.5px]`}>{inv.date}</td>
+                      <td className={`px-3 ${rowPad} text-[12.5px]`}>
+                        {inv.dueDate ? (
+                          <div className="flex flex-col">
+                            <span className="text-n-700">{new Date(inv.dueDate).toLocaleDateString()}</span>
+                            {inv._daysOverdue > 0 && (
+                              <span className="text-[10.5px] font-semibold text-red-600 uppercase tracking-wide">
+                                {inv._daysOverdue} day{inv._daysOverdue === 1 ? '' : 's'} overdue
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-n-400 italic">—</span>
+                        )}
+                      </td>
                       <td className={`px-3 ${rowPad} text-right font-mono-num text-[12.5px] text-n-800 font-semibold`}>{formatCurrency(inv.currency, inv.total)}</td>
                       <td className={`px-3 ${rowPad}`}>
                         <div className="flex flex-col gap-1 items-start">

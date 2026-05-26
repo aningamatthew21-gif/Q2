@@ -2,6 +2,7 @@
 
 const express = require('express');
 const crypto = require('crypto');
+const oracledb = require('oracledb');
 const { execute, transaction } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
 const {
@@ -15,6 +16,7 @@ const { sendRfqEmail } = require('../utils/email');
 const { calculateVendorScores, DEFAULT_WEIGHTS } = require('../utils/vendorScoring');
 const { notify } = require('../services/notificationService');
 const { can } = require('../../shared/permissions.js');
+const { validateAttachmentBuffer } = require('../utils/fileValidator');
 
 // ── RFQ ownership (derived from linked PR assignments) ───────────────────
 //
@@ -41,6 +43,61 @@ async function getRfqAssignedOfficers(rfqId) {
     { id: rfqId }, { outFormat: 4002 }
   );
   return new Set((r.rows || []).map(row => row.OFFICER).filter(Boolean));
+}
+
+/**
+ * Mirror an RFQ-scoped procurement event onto every PR linked to the RFQ.
+ * Adds PR-scoped rows with EVENT_TYPE prefixed `PR_` (e.g. `PR_RFQ_SENT`)
+ * so the PR's history panel reflects the full procurement timeline,
+ * not just the create event. Pass an open `conn` to keep this inside
+ * the caller's transaction.
+ *
+ * Without this mirror the PR history is misleading: a PR can be sitting
+ * in `IN_RFQ` for days, the RFQ goes through send → responses → award,
+ * and the PR's history panel still shows nothing but "PR_CREATED".
+ */
+async function mirrorRfqEventToPrs(connOrNull, rfqId, eventType, actor, payload = {}) {
+  if (!rfqId || !eventType) return;
+  // Map RFQ event types to the PR-scoped equivalent. Keep the mapping
+  // small + explicit so future event types are an obvious add here.
+  const PR_EVENT_TYPE = {
+    'RFQ_CREATED':            'PR_RFQ_CREATED',
+    'RFQ_SENT':               'PR_RFQ_SENT',
+    'RFQ_RESPONSE_LOGGED':    'PR_RFQ_RESPONSE_LOGGED',
+    'RFQ_RECOMMENDED':        'PR_RECOMMENDATION_MADE',
+    'RFQ_PENDING_APPROVAL':   'PR_PENDING_AWARD_APPROVAL',
+    'RFQ_CONTROLLER_REJECTED':'PR_RECOMMENDATION_REJECTED',
+    'RFQ_AWARDED':            'PR_AWARDED',
+    'RFQ_CONTROLLER_APPROVED':'PR_AWARDED',
+    'RFQ_CANCELLED':          'PR_RFQ_CANCELLED'
+  }[eventType];
+  if (!PR_EVENT_TYPE) return; // event type we don't mirror
+
+  // Accept both a transaction connection (callers inside `transaction()`)
+  // and `null` (callers that already auto-committed their main event row
+  // via plain `execute`). The mirror rows are audit data; we don't insist
+  // they be atomic with the main event for non-transactional callers.
+  const exec = connOrNull
+    ? (sql, binds, opts) => connOrNull.execute(sql, binds, opts)
+    : (sql, binds, opts) => execute(sql, binds, opts);
+
+  const linkedRes = await exec(
+    `SELECT DISTINCT PR_ID FROM QA_RFQ_LINE_ITEMS WHERE RFQ_ID = :rid`,
+    { rid: rfqId }, { outFormat: 4002 }
+  );
+  const payloadStr = JSON.stringify({ ...payload, rfqId });
+  for (const row of (linkedRes.rows || [])) {
+    try {
+      await exec(
+        `INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
+         VALUES (:et, 'PR', :pid, :actor, :payload)`,
+        { et: PR_EVENT_TYPE, pid: row.PR_ID, actor, payload: payloadStr }
+      );
+    } catch (e) {
+      // Don't fail the parent transaction just because a mirror row didn't insert
+      console.error(`[mirrorRfqEventToPrs] failed for PR=${row.PR_ID}:`, e.message);
+    }
+  }
 }
 
 // Middleware: gate the request behind RFQ ownership for officer-level
@@ -331,7 +388,72 @@ router.get('/:id', catchAsync(async (req, res) => {
   // the "Yours" pill on the list view.
   const assignedOfficers = Array.from(await getRfqAssignedOfficers(id));
 
-  res.json({ success: true, data: { ...rfq, lineItems, vendors, responses, assignedOfficers } });
+  // ── Last rejection (Module 3 visibility) ────────────────────────────
+  // When the head rejected a recommendation, the rfq.status flips back
+  // to RECEIVING and the reason is captured in a RFQ_CONTROLLER_REJECTED
+  // event payload. Surface the most-recent one so the RFQ detail page
+  // can render a clear banner explaining WHY it came back. Only the
+  // latest matters (subsequent re-recommendations supersede earlier ones).
+  let lastRejection = null;
+  try {
+    const rejRes = await execute(
+      `SELECT EVENT_TIME, ACTOR, PAYLOAD
+         FROM QA_PROCUREMENT_EVENTS
+        WHERE ENTITY_TYPE = 'RFQ'
+          AND ENTITY_ID = :id
+          AND EVENT_TYPE = 'RFQ_CONTROLLER_REJECTED'
+        ORDER BY EVENT_TIME DESC
+        FETCH FIRST 1 ROWS ONLY`,
+      { id }, { outFormat: 4002 }
+    );
+    const rejRow = rejRes.rows?.[0];
+    if (rejRow) {
+      let reason = '';
+      try { reason = (JSON.parse(rejRow.PAYLOAD || '{}')).reason || ''; } catch (_e) { /* ignore */ }
+      lastRejection = {
+        rejectedAt: rejRow.EVENT_TIME,
+        rejectedBy: rejRow.ACTOR,
+        reason
+      };
+      // Suppress the banner if a newer RECOMMENDED event came after the
+      // rejection (officer already re-recommended). Compare timestamps.
+      const newRecRes = await execute(
+        `SELECT 1 FROM QA_PROCUREMENT_EVENTS
+          WHERE ENTITY_TYPE = 'RFQ'
+            AND ENTITY_ID = :id
+            AND EVENT_TYPE = 'RFQ_RECOMMENDED'
+            AND EVENT_TIME > :ts
+          FETCH FIRST 1 ROWS ONLY`,
+        { id, ts: rejRow.EVENT_TIME }
+      );
+      if (newRecRes.rows?.length > 0) {
+        lastRejection = null;
+      }
+    }
+  } catch (_e) {
+    // Best-effort — banner just doesn't render
+  }
+
+  // ── Attachment counts per vendor (Module 3 add-on) ──────────────────
+  // Drives the PDF-button visibility in the comparison matrix without
+  // sending the full attachment payloads down. Frontend fetches the
+  // full metadata list only when the user clicks Download.
+  const attCountRes = await execute(
+    `SELECT VENDOR_ID, COUNT(*) AS C
+       FROM QA_RFQ_RESPONSE_ATTACHMENTS
+      WHERE RFQ_ID = :id
+      GROUP BY VENDOR_ID`,
+    { id }, { outFormat: 4002 }
+  );
+  const attachmentCounts = {};
+  for (const row of (attCountRes.rows || [])) {
+    attachmentCounts[row.VENDOR_ID] = Number(row.C || 0);
+  }
+
+  res.json({
+    success: true,
+    data: { ...rfq, lineItems, vendors, responses, assignedOfficers, lastRejection, attachmentCounts }
+  });
 }));
 
 /**
@@ -482,6 +604,9 @@ router.post('/', requirePermission('rfq.create'), catchAsync(async (req, res) =>
       INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
       VALUES ('RFQ_CREATED','RFQ',:id,:actor,:payload)
     `, { id, actor: req.user.email, payload: JSON.stringify({ prIds, vendorIds, rfqNumber }) });
+
+    // Mirror to PR history so each linked PR records "moved into this RFQ"
+    await mirrorRfqEventToPrs(conn, id, 'RFQ_CREATED', req.user.email, { rfqNumber });
   });
 
   emitToAll('rfq:updated');
@@ -591,6 +716,7 @@ router.post('/:id/send', requirePermission('rfq.send'), requireRfqOwnership, cat
     INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
     VALUES ('RFQ_SENT','RFQ',:id,:actor,:payload)
   `, { id, actor: req.user.email, payload: JSON.stringify({ sendResults }) });
+  await mirrorRfqEventToPrs(null, id, 'RFQ_SENT', req.user.email, { vendorCount: sendResults.length });
 
   emitToAll('rfq:updated');
   res.json({ success: true, sendResults });
@@ -611,7 +737,21 @@ router.post('/:id/responses', requirePermission('rfq.response.log'), requireRfqO
   const unit = Number(r.unitCost || 0);
   const total = unit * qty + Number(r.freight || 0);
 
+  // ── Edit-mode detection ─────────────────────────────────────────────
+  // The frontend's "Log" button is shown on every row of the comparison
+  // matrix, including vendors who've already responded. When the user
+  // clicks Log on an already-responded vendor they're editing — so we
+  // delete the existing rows for (rfq, vendor, pr) before inserting,
+  // making the call an upsert semantically. (Multiple rows could exist
+  // if the vendor responded for multiple PRs — we only delete the row
+  // for THIS pr to keep the others intact.)
   await transaction(async (conn) => {
+    await conn.execute(
+      `DELETE FROM QA_RFQ_RESPONSES
+        WHERE RFQ_ID = :rid AND VENDOR_ID = :vid AND PR_ID = :pid`,
+      { rid: id, vid: r.vendorId, pid: r.prId }
+    );
+
     await conn.execute(`
       INSERT INTO QA_RFQ_RESPONSES (
         RFQ_ID, VENDOR_ID, PR_ID, UNIT_COST, QUANTITY, TOTAL_COST, CURRENCY,
@@ -639,6 +779,118 @@ router.post('/:id/responses', requirePermission('rfq.response.log'), requireRfqO
       lb: req.user.email,
       rd: r.receivedDate || null
     });
+
+    // ── Attachments (Module 3 add-on) ─────────────────────────────
+    // Frontend sends attachments on the FIRST line of a batched save
+    // only (i === 0 in LogVendorResponseModal). We REPLACE existing
+    // attachments for this (rfq, vendor) when a new non-empty array
+    // arrives so the user can curate the file list in edit mode.
+    // Empty arrays are no-ops (preserves the existing attachments
+    // when the user is only editing line costs).
+    const attachments = Array.isArray(r.attachments) ? r.attachments : [];
+    if (attachments.length > 0) {
+      await conn.execute(
+        `DELETE FROM QA_RFQ_RESPONSE_ATTACHMENTS WHERE RFQ_ID = :rid AND VENDOR_ID = :vid`,
+        { rid: id, vid: r.vendorId }
+      );
+      for (const att of attachments) {
+        if (!att || !att.dataUrl || !att.name) continue;
+
+        // Decode the base64 data URL into a raw Buffer so we can stream
+        // straight into a BLOB column. Storing binary files as base64
+        // text in a CLOB was the previous approach and it silently
+        // corrupted everything: oracledb v6 treats `{ val: str, type:
+        // oracledb.CLOB }` as a temp-LOB descriptor (val should be a
+        // Lob or Buffer), so passing a plain string falls back to
+        // String(bindObj) → "[object Object]". 15 chars per row, every
+        // PDF destroyed. BLOB + Buffer is the canonical pattern.
+        const raw     = String(att.dataUrl || '');
+        const cIdx    = raw.indexOf(',');
+        const looks   = raw.startsWith('data:') && cIdx > 0 && cIdx < 200;
+        const b64     = (looks ? raw.slice(cIdx + 1) : raw).replace(/[\s\r\n]/g, '');
+        const buffer  = Buffer.from(b64, 'base64');
+
+        // ── OWASP File Upload Cheat Sheet 2025 / ISO 27001 A.8.7 ──────
+        // Defence-in-depth: verify the bytes are actually the file type
+        // the client claims, AND under our 10 MB cap, AND on our MIME
+        // allowlist. Rejects payloads where someone renamed
+        // malware.exe → contract.pdf or stuffed an oversized blob past
+        // the frontend dropzone (which can be bypassed via direct POST).
+        //
+        // Per-attachment rejection is "fail-fast inside the transaction"
+        // — one bad file aborts the whole save so the user gets a clear
+        // error rather than seeing some files saved and some silently
+        // dropped. Caller's transaction() wrapper auto-rolls-back.
+        const verdict = validateAttachmentBuffer(buffer, att.type, att.name);
+        if (!verdict.ok) {
+          console.warn(`[rfqs:attachment] REJECTED — ${verdict.reason}`);
+          const err = new Error(verdict.reason);
+          err.status = 400;
+          throw err;
+        }
+
+        // ── CANONICAL oracledb v6 BLOB insert via temp LOB streaming ──
+        //
+        // Sequence (verified against
+        // https://node-oracledb.readthedocs.io/en/stable/user_guide/lob_data.html):
+        //   1. createLob(oracledb.BLOB)  — temp LOB on this connection
+        //   2. .end(buffer)              — write buffer + close writable
+        //                                  ('finish' fires when fully flushed)
+        //   3. execute(INSERT … :b)      — bind the LOB itself
+        //   4. await tempLob.destroy()   — frees temp tablespace
+        //
+        // Critical: use .destroy(), NOT .close(). The docs explicitly
+        // say temp LOBs created with createLob() must be released with
+        // destroy(). close() is for closing FETCHED LOBs and on a temp
+        // LOB can leave the temp tablespace allocated. We previously
+        // used close() and saw stored bytes diverge from input — the
+        // close-vs-destroy distinction is the root cause.
+        const tempLob = await conn.createLob(oracledb.BLOB);
+        try {
+          await new Promise((resolve, reject) => {
+            tempLob.once('error', reject);
+            tempLob.once('finish', resolve);
+            tempLob.end(buffer);
+          });
+
+          // Bind names avoid Oracle reserved words: SIZE and TYPE both
+          // trigger ORA-01745. Use :fname/:ftype/:fsize/:fdata/:uby.
+          await conn.execute(
+            `INSERT INTO QA_RFQ_RESPONSE_ATTACHMENTS (
+               RFQ_ID, VENDOR_ID, FILE_NAME, FILE_TYPE, FILE_SIZE, FILE_DATA, UPLOADED_BY
+             ) VALUES (
+               :rid, :vid, :fname, :ftype, :fsize, :fdata, :uby
+             )`,
+            {
+              rid:   id,
+              vid:   r.vendorId,
+              fname: String(att.name).slice(0, 500),
+              ftype: att.type ? String(att.type).slice(0, 100) : null,
+              // FILE_SIZE is the actual binary byte count (matches what
+              // we'll send back on download). Used by the download
+              // handler as a sanity check.
+              fsize: buffer.length,
+              fdata: tempLob,
+              uby:   req.user.email
+            }
+          );
+
+          // Forensic log — once a successful insert lands we record the
+          // first 8 bytes hex so the operator can verify storage against
+          // the original PDF (a valid PDF starts %PDF-1.x = 25 50 44 46
+          // 2D 31 2E xx). Helps debug future regressions.
+          const head8 = buffer.slice(0, 8).toString('hex');
+          console.log(
+            `[rfq attachment insert] ${att.name} · ${buffer.length}B · ` +
+            `head=${head8} ${buffer.slice(0, 4).toString('ascii')}`
+          );
+        } finally {
+          // Per docs: destroy() releases temp tablespace. close() does
+          // NOT — temp LOBs leak across the pool otherwise.
+          try { await tempLob.destroy(); } catch (_) { /* already gone */ }
+        }
+      }
+    }
 
     await conn.execute(`
       UPDATE QA_RFQ_VENDORS SET RESPONSE_STATUS = 'RESPONDED'
@@ -673,6 +925,19 @@ router.post('/:id/responses', requirePermission('rfq.response.log'), requireRfqO
       INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
       VALUES ('RFQ_RESPONSE_LOGGED','RFQ',:id,:actor,:payload)
     `, { id, actor: req.user.email, payload: JSON.stringify({ vendorId: r.vendorId, prId: r.prId, unitCost: unit }) });
+
+    // Mirror only to the specific PR this response is for (not all PRs in
+    // the RFQ) — the per-PR history should show "vendor X quoted $Y for me"
+    // only on the PR that vendor quoted, not on every sibling.
+    try {
+      await conn.execute(
+        `INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
+         VALUES ('PR_RFQ_RESPONSE_LOGGED','PR',:pid,:actor,:payload)`,
+        { pid: r.prId, actor: req.user.email, payload: JSON.stringify({ rfqId: id, vendorId: r.vendorId, unitCost: unit, total }) }
+      );
+    } catch (e) {
+      console.error('[response mirror to PR] failed:', e.message);
+    }
   });
 
   emitToAll('rfq:updated');
@@ -862,6 +1127,7 @@ router.post('/:id/award', requirePermission('rfq.approve.award'), catchAsync(asy
       actor: req.user.email,
       payload: JSON.stringify({ vendorId, responseIds, totalAward, pushbackResults, needsApproval })
     });
+    await mirrorRfqEventToPrs(conn, id, eventType, req.user.email, { vendorId, totalAward });
   });
 
   emitToAll('rfq:updated');
@@ -1003,6 +1269,7 @@ router.post('/:id/recommend', requirePermission('rfq.recommend'), requireRfqOwne
       actor: req.user.email,
       payload: JSON.stringify({ vendorId, responseIds, score, reason, allowPartial, totalAmount })
     });
+    await mirrorRfqEventToPrs(conn, id, 'RFQ_RECOMMENDED', req.user.email, { vendorId, score, reason });
   });
 
   emitToAll('rfq:updated');
@@ -1044,6 +1311,7 @@ router.delete('/:id', requirePermission('rfq.cancel'), catchAsync(async (req, re
       INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
       VALUES ('RFQ_CANCELLED','RFQ',:id,:actor,'{}')
     `, { id, actor: req.user.email });
+    await mirrorRfqEventToPrs(conn, id, 'RFQ_CANCELLED', req.user.email, {});
   });
   emitToAll('rfq:updated');
   emitToAll('pr:updated');
@@ -1346,6 +1614,7 @@ router.post('/:id/approve', requirePermission('rfq.approve.award'), catchAsync(a
       INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
       VALUES ('RFQ_CONTROLLER_APPROVED','RFQ',:id,:actor,:payload)
     `, { id, actor: req.user.email, payload: JSON.stringify({ totalAward, pushbackResults }) });
+    await mirrorRfqEventToPrs(conn, id, 'RFQ_CONTROLLER_APPROVED', req.user.email, { vendorId, totalAward });
     log('tx body complete (about to commit)');
   });
   log('tx committed');
@@ -1417,6 +1686,7 @@ router.post('/:id/reject', requireRole('procurement', 'admin'), catchAsync(async
       INSERT INTO QA_PROCUREMENT_EVENTS (EVENT_TYPE, ENTITY_TYPE, ENTITY_ID, ACTOR, PAYLOAD)
       VALUES ('RFQ_CONTROLLER_REJECTED','RFQ',:id,:actor,:payload)
     `, { id, actor: req.user.email, payload: JSON.stringify({ reason: reason || '' }) });
+    await mirrorRfqEventToPrs(conn, id, 'RFQ_CONTROLLER_REJECTED', req.user.email, { reason: reason || '' });
   });
 
   emitToAll('rfq:updated');
@@ -1503,6 +1773,118 @@ router.post('/:id/escalate', requirePermission('rfq.escalate'), requireRfqOwners
 
   emitToAll('rfq:updated');
   res.json({ success: true, escalatedTo: targetEmail });
+}));
+
+// ──────────────────────────────────────────────────────────────────────
+// Vendor-response attachments (Module 3 add-on)
+//
+// LIST + DOWNLOAD only — uploads happen via POST /:id/responses (above)
+// because the modal that uploads them already POSTs the response payload
+// and the attachments ride along.
+//
+// GET  /:id/responses/:vendorId/attachments               → metadata list
+// GET  /:id/responses/:vendorId/attachments/:attId/download → binary
+// ──────────────────────────────────────────────────────────────────────
+
+router.get('/:id/responses/:vendorId/attachments', requirePermission('rfq.read'), catchAsync(async (req, res) => {
+  const { id, vendorId } = req.params;
+  const r = await execute(
+    `SELECT ATTACHMENT_ID, FILE_NAME, FILE_TYPE, FILE_SIZE, UPLOADED_BY, UPLOADED_AT
+       FROM QA_RFQ_RESPONSE_ATTACHMENTS
+      WHERE RFQ_ID = :rid AND VENDOR_ID = :vid
+      ORDER BY UPLOADED_AT DESC, ATTACHMENT_ID DESC`,
+    { rid: id, vid: vendorId }, { outFormat: 4002 }
+  );
+  res.json({
+    success: true,
+    data: (r.rows || []).map(row => ({
+      attachmentId: row.ATTACHMENT_ID,
+      fileName:     row.FILE_NAME,
+      fileType:     row.FILE_TYPE || 'application/octet-stream',
+      fileSize:     Number(row.FILE_SIZE || 0),
+      uploadedBy:   row.UPLOADED_BY || '',
+      uploadedAt:   row.UPLOADED_AT
+    }))
+  });
+}));
+
+router.get('/:id/responses/:vendorId/attachments/:attId/download', requirePermission('rfq.read'), catchAsync(async (req, res) => {
+  const { id, vendorId, attId } = req.params;
+
+  // Explicit per-column fetch hint — defends against fetchTypeMap not
+  // applying (which has bitten us before — global default was set in
+  // db.js but a previous regression returned the raw Lob descriptor
+  // for FILE_DATA, which then silently turned into 15 bytes of garbage
+  // via the Buffer.from(lob, 'binary') fallback path).
+  const r = await execute(
+    `SELECT FILE_NAME, FILE_TYPE, FILE_SIZE, FILE_DATA
+       FROM QA_RFQ_RESPONSE_ATTACHMENTS
+      WHERE ATTACHMENT_ID = :aid AND RFQ_ID = :rid AND VENDOR_ID = :vid`,
+    { aid: attId, rid: id, vid: vendorId },
+    {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+      fetchInfo: { FILE_DATA: { type: oracledb.BUFFER } }
+    }
+  );
+  const row = r.rows?.[0];
+  if (!row) {
+    return res.status(404).json({ success: false, error: 'Attachment not found.' });
+  }
+
+  // Hard assertion: FILE_DATA MUST be a Buffer at this point. If it
+  // isn't, the bytes are corrupted (or fetchInfo failed) — abort
+  // cleanly rather than serve garbage.
+  if (!Buffer.isBuffer(row.FILE_DATA)) {
+    console.error(
+      `[rfq attachment ${attId}] FILE_DATA is not a Buffer — got ${typeof row.FILE_DATA} ` +
+      `(constructor=${row.FILE_DATA?.constructor?.name || 'none'}). ` +
+      `Storage corrupted OR fetchInfo failed. Re-upload the file.`
+    );
+    return res.status(500).json({
+      success: false,
+      error: 'Attachment is corrupted in storage. Please re-upload via the Edit Vendor Response modal.'
+    });
+  }
+
+  // DEFENSIVE COPY — oracledb v6 sometimes returns Buffers that are
+  // views over the pooled connection's internal memory. db.js#execute()
+  // releases that connection in a finally block BEFORE this handler
+  // runs, and the pool then zeros the memory on reclaim. The result
+  // was 131,484 bytes of zeros on the wire even though the DB stored
+  // a perfect PDF (verified via diagnose_attachments.js).
+  // Buffer.from(buffer) forces a JS-owned copy so the bytes survive
+  // the connection lifecycle. Cheap: ~10 MB max per attachment.
+  const buffer = Buffer.from(row.FILE_DATA);
+  const expectedBytes = Number(row.FILE_SIZE || 0);
+
+  // Forensic logging — record EVERY download with byte counts + first
+  // 8 bytes hex. A valid PDF starts %PDF-1.x = 25 50 44 46 2D 31 2E xx.
+  // An image starts with its magic (PNG=89504E47, JPG=FFD8FFE0, etc.).
+  // If head8 = "5B6F626A 6563744F" that's "[objectO..." = the
+  // [object Object] sentinel we used to write — definitive storage
+  // corruption signal.
+  const head8 = buffer.slice(0, 8).toString('hex');
+  const head4ascii = buffer.slice(0, 4).toString('ascii').replace(/[^\x20-\x7E]/g, '.');
+  const sizeMatch = expectedBytes === 0 || Math.abs(buffer.length - expectedBytes) <= 8;
+  const status = sizeMatch ? '✓' : '⚠';
+  console.log(
+    `[rfq attachment download ${status}] id=${attId} name="${row.FILE_NAME}" ` +
+    `buffer=${buffer.length}B stored=${expectedBytes}B head=${head8} (${head4ascii})`
+  );
+
+  if (!sizeMatch) {
+    console.warn(
+      `[rfq attachment ${attId}] SIZE MISMATCH — buffer ${buffer.length}B vs stored FILE_SIZE ${expectedBytes}B. ` +
+      `Most likely indicates the upload was truncated or close()/destroy() race during insert.`
+    );
+  }
+
+  res.setHeader('Content-Type', row.FILE_TYPE || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${(row.FILE_NAME || 'attachment').replace(/"/g, '\\"')}"`);
+  res.setHeader('Content-Length', buffer.length);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.end(buffer);
 }));
 
 module.exports = router;

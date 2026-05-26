@@ -19,6 +19,8 @@ import { logActivity } from '../utils/logger';
 import { useApp } from '../context/AppContext';
 import { usePrompt } from '../components/v2/PromptDialog';
 import { can } from '../utils/permissions';
+import JSZip from 'jszip';
+import { Download } from 'lucide-react';
 
 const StatusBadge = ({ value }) => (
     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -263,7 +265,11 @@ const RFQDetail = ({ navigateTo, pageContext, currentUser }) => {
             setLogDefaultPr(null);
             fetchRfq();
         } catch (err) {
-            setNotification({ type: 'error', message: err.message || 'Failed to save response.' });
+            // Re-throw so the modal's handleSave catch block can surface
+            // the error inline — the toast notification is hidden behind
+            // the modal overlay otherwise.
+            setNotification({ type: 'error', message: err?.response?.data?.error || err.message || 'Failed to save response.' });
+            throw err;
         }
     };
 
@@ -459,43 +465,77 @@ MIDSA Procurement`;
         logActivity(username, 'Drafted Vendor Reminder', `${rfq.rfqNumber} -> ${vendor.vendorName}`);
     }, [rfq, username]);
 
-    // Download PDF for a specific vendor
+    // Download the actual vendor-supplied attachments (signed RFQ +
+    // quotation PDFs) that were uploaded with the vendor's response.
+    // - 0 attachments → user-friendly notification, no download
+    // - 1 attachment → direct download
+    // - 2+ attachments → ZIP archive named after vendor + RFQ
     const handleDownloadVendorPDF = useCallback(async (vendor) => {
         if (!rfq || downloadingPDF) return;
         setDownloadingPDF(true);
         try {
-            const rfqData = {
-                rfqNumber: rfq.rfqNumber,
-                title: rfq.title,
-                submissionDeadline: rfq.submissionDeadline,
-                deliveryDeadline: rfq.deliveryDeadline,
-                currency: rfq.currency,
-                notes: rfq.notes,
-                vendor: {
-                    name: vendor.vendorName,
-                    contactPerson: vendor.contactPerson || '',
-                    contactEmail: vendor.contactEmail || '',
-                    contactPhone: vendor.contactPhone || '',
-                    address: vendor.address || '',
-                },
-                lineItems: rfq.lineItems.map(li => ({
-                    itemName: li.itemName,
-                    quantity: li.quantity,
-                    uom: li.uom || 'EA',
-                    description: li.itemName,
-                })),
-            };
-            const pdf = await PDFService.generateRFQPDF(rfqData);
+            const token = localStorage.getItem('auth_token');
+            // 1. fetch metadata list
+            const listRes = await api.get(`/rfqs/${rfq.id}/responses/${vendor.vendorId}/attachments`);
+            const atts = listRes?.data || [];
+            if (atts.length === 0) {
+                setNotification({
+                    type: 'warning',
+                    message: `No attachments on file for ${vendor.vendorName}. Use "Log" to upload the signed RFQ and quotation.`
+                });
+                return;
+            }
+
             const vName = (vendor.vendorName || 'Vendor').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '-');
-            const date = new Date().toISOString().slice(0, 10);
-            pdf.save(`${vName}-${rfq.rfqNumber}-${date}.pdf`);
-            setNotification({ type: 'success', message: `PDF downloaded for ${vendor.vendorName}.` });
+            const date  = new Date().toISOString().slice(0, 10);
+
+            // 2. fetch each binary
+            const fetchOne = async (att) => {
+                const r = await fetch(
+                    `/api/rfqs/${rfq.id}/responses/${vendor.vendorId}/attachments/${att.attachmentId}/download`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                if (!r.ok) throw new Error(`Download failed for ${att.fileName}`);
+                return { blob: await r.blob(), name: att.fileName || `attachment-${att.attachmentId}` };
+            };
+
+            if (atts.length === 1) {
+                const { blob, name } = await fetchOne(atts[0]);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                setNotification({ type: 'success', message: `Downloaded ${name}.` });
+            } else {
+                // multiple — zip them up
+                const zip = new JSZip();
+                const folder = zip.folder(`${vName}-${rfq.rfqNumber}`);
+                for (const att of atts) {
+                    const { blob, name } = await fetchOne(att);
+                    folder.file(name, blob);
+                }
+                const zipBlob = await zip.generateAsync({ type: 'blob' });
+                const url = URL.createObjectURL(zipBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${vName}-${rfq.rfqNumber}-${date}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                setNotification({ type: 'success', message: `Downloaded ${atts.length} attachments for ${vendor.vendorName} as ZIP.` });
+            }
+            await logActivity(username, 'Downloaded Vendor Attachments', `${rfq.rfqNumber} -> ${vendor.vendorName} (${atts.length})`);
         } catch (err) {
-            setNotification({ type: 'error', message: 'Failed to generate PDF.' });
+            setNotification({ type: 'error', message: `Failed to download attachments: ${err.message || 'Unknown error'}` });
         } finally {
             setDownloadingPDF(false);
         }
-    }, [rfq, downloadingPDF]);
+    }, [rfq, downloadingPDF, username]);
 
     // Build preview data for the RFQ preview modal
     const previewRfqData = useMemo(() => {
@@ -609,6 +649,77 @@ MIDSA Procurement`;
 
                 {/* Workflow stepper — shows the 7-stage RFQ lifecycle at a glance */}
                 <RFQWorkflowStepper status={rfq.status} />
+
+                {/* Module 3 — Procurement Head sent the recommendation back.
+                    Tells the officer WHY and provides the next-action affordances.
+                    Suppressed by backend once the officer re-recommends. */}
+                {rfq.lastRejection && rfq.status === 'RECEIVING' && (
+                    <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 my-4">
+                        <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 mt-0.5">
+                                <Icon id="exclamation-triangle" className="w-5 h-5 text-amber-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-sm font-semibold text-amber-900">
+                                    Recommendation sent back for review
+                                </div>
+                                <div className="text-xs text-amber-800 mt-1">
+                                    <strong>{rfq.lastRejection.rejectedBy || 'Procurement Head'}</strong>
+                                    {rfq.lastRejection.rejectedAt && (
+                                        <> &middot; {new Date(rfq.lastRejection.rejectedAt).toLocaleString()}</>
+                                    )}
+                                </div>
+                                {rfq.lastRejection.reason ? (
+                                    <div className="mt-2 p-2 bg-white/70 rounded border border-amber-200 text-sm text-amber-900 whitespace-pre-wrap">
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 block mb-0.5">Reason</span>
+                                        {rfq.lastRejection.reason}
+                                    </div>
+                                ) : (
+                                    <div className="mt-2 text-xs text-amber-700 italic">No reason was captured. Reach out to {rfq.lastRejection.rejectedBy || 'the head'} for context.</div>
+                                )}
+                                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                                    <span className="text-amber-900 font-medium self-center">Next steps:</span>
+                                    {canRecommend && (
+                                        <button
+                                            onClick={() => {
+                                                // Re-recommend — prefer system rec, fallback to best-value, then cheapest
+                                                const systemRec = recommendation?.recommendedVendorId
+                                                    ? rfq.vendors.find(v => v.vendorId === recommendation.recommendedVendorId)
+                                                    : null;
+                                                const target = systemRec
+                                                    || (bestValueVendorId ? rfq.vendors.find(v => v.vendorId === bestValueVendorId) : null)
+                                                    || sortedVendorsByCost[0];
+                                                if (target) setRecommendVendor(target);
+                                            }}
+                                            className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 font-medium"
+                                        >
+                                            Re-recommend
+                                        </button>
+                                    )}
+                                    {canLogResponse && (
+                                        <button
+                                            onClick={() => {
+                                                const target = rfq.vendors[0];
+                                                if (target) { setLogVendor(target); setLogDefaultPr(rfq.lineItems[0]?.prId); }
+                                            }}
+                                            className="px-3 py-1 rounded bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 font-medium"
+                                        >
+                                            Edit vendor responses
+                                        </button>
+                                    )}
+                                    {canCancelRfq && (
+                                        <button
+                                            onClick={() => setConfirmCancel(true)}
+                                            className="px-3 py-1 rounded bg-white border border-red-300 text-red-700 hover:bg-red-50 font-medium"
+                                        >
+                                            Cancel RFQ
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Phase 5 — escalation / past-deadline risk banner */}
                 <EscalationBanner
@@ -905,13 +1016,25 @@ MIDSA Procurement`;
                                                                             Recommend
                                                                         </button>
                                                                     )}
-                                                                    <button
-                                                                        onClick={() => handleDownloadVendorPDF(v)}
-                                                                        className="text-xs text-gray-500 hover:underline ml-1"
-                                                                        disabled={downloadingPDF}
-                                                                    >
-                                                                        PDF
-                                                                    </button>
+                                                                    {(() => {
+                                                                        const attCount = rfq.attachmentCounts?.[v.vendorId] || 0;
+                                                                        const hasAtts  = attCount > 0;
+                                                                        return (
+                                                                            <button
+                                                                                onClick={() => handleDownloadVendorPDF(v)}
+                                                                                className={`text-xs ml-1 inline-flex items-center gap-0.5 ${
+                                                                                    hasAtts ? 'text-blue-600 hover:underline' : 'text-gray-400 hover:underline'
+                                                                                }`}
+                                                                                disabled={downloadingPDF}
+                                                                                title={hasAtts
+                                                                                    ? `Download ${attCount} attachment${attCount === 1 ? '' : 's'}`
+                                                                                    : 'No attachments on file for this vendor'}
+                                                                            >
+                                                                                <Download className="w-3.5 h-3.5" />
+                                                                                {hasAtts && <span>{attCount}</span>}
+                                                                            </button>
+                                                                        );
+                                                                    })()}
                                                                 </div>
                                                             )}
                                                             {winner && <span className="text-xs text-green-700 font-semibold">Winner</span>}

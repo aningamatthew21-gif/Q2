@@ -1,6 +1,7 @@
 'use strict';
 
 const { execute } = require('../db');
+const { maskPII } = require('../utils/maskPII');
 
 /**
  * Auto-Audit Middleware
@@ -147,12 +148,19 @@ const auditMiddleware = (req, res, next) => {
       const ipAddress = getClientIp(req);
       const userAgent = (req.headers['user-agent'] || '').substring(0, 495);
 
-      // Sanitize body for logging (remove sensitive fields)
-      const safeBody = req.body ? { ...req.body } : {};
-      delete safeBody.password;
-      delete safeBody.token;
-      delete safeBody.otp;
-      delete safeBody.signatureUrl; // Base64 images are too large
+      // ISO 27001 A.5.34 / A.8.11 — pseudonymise PII before persisting.
+      // maskPII recursively walks the body:
+      //   - secrets (password / token / otp / signatureUrl / dataUrl) → '[REMOVED]'
+      //   - emails  → 'a***@g***.com'
+      //   - phones  → '+233***4567'
+      //   - TINs    → 'C******5678'
+      //   - long digit strings (CC/bank) → '****-****-****-1234'
+      //   - names + addresses → first-char + length hint
+      //   - safe identifier keys (id, status, etc.) pass through unchanged
+      // Original SECRET_KEYS list is now centralised in utils/maskPII.js
+      // so every future code path that needs to log a body gets the
+      // same protection automatically.
+      const safeBody = req.body ? maskPII(req.body) : {};
       const details = `${method} ${path} → ${statusCode}`;
       const extraData = Object.keys(safeBody).length > 0
         ? JSON.stringify(safeBody).substring(0, 3900)

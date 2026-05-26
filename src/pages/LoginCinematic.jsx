@@ -519,17 +519,32 @@ export default function LoginCinematic({ onLogin, onOTPLogin, companyName = 'MID
 }
 
 /* ── Form pieces ───────────────────────────────────────────────── */
-function FormField({ label, icon, monospace, ...inputProps }) {
+// WCAG 2.1 §1.3.1 (Info and Relationships) + §3.3.2 (Labels or
+// Instructions) — every form input must have a programmatically
+// associated <label htmlFor>. Visual proximity is not enough for
+// screen-reader users; we auto-derive a stable id from the label slug
+// (or accept an explicit `id` override from callers).
+function FormField({ id, label, icon, monospace, ...inputProps }) {
+  const autoId = id || `field-${String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`;
   return (
     <div>
-      <label className="block text-[12px] font-semibold text-n-700 mb-1.5">{label}</label>
+      <label
+        htmlFor={autoId}
+        className="block text-[12px] font-semibold text-n-700 mb-1.5"
+      >
+        {label}
+      </label>
       <div className="relative">
         {icon && (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-n-400 pointer-events-none">
+          <span
+            aria-hidden="true"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-n-400 pointer-events-none"
+          >
             {React.cloneElement(icon, { className: 'w-4 h-4' })}
           </span>
         )}
         <input
+          id={autoId}
           {...inputProps}
           className={[
             'w-full h-11 pl-10 pr-3 text-[14px] bg-white border border-n-300 rounded-md',

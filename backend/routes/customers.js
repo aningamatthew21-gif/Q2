@@ -29,7 +29,17 @@ router.get('/', catchAsync(async (req, res) => {
     region: row.REGION || '',
     address: row.ADDRESS || '',
     notes: row.NOTES || '',
-    customerSince: row.CUSTOMER_SINCE || ''
+    customerSince: row.CUSTOMER_SINCE || '',
+    // Module 1 — master-data fields. All optional; default to safe values
+    // when NULL so frontends don't crash on the legacy rows that pre-date
+    // the migration.
+    tin:                  row.TIN || '',
+    defaultPaymentTerms:  row.DEFAULT_PAYMENT_TERMS || 'Net 30',
+    creditLimit:          Number(row.CREDIT_LIMIT || 0),
+    creditHold:           row.CREDIT_HOLD === 'Y',
+    industry:             row.INDUSTRY || '',
+    sizeBand:             row.SIZE_BAND || '',
+    whtProfileCode:       row.WHT_PROFILE_CODE || ''
   }));
 
   res.json({ success: true, data: customers });
@@ -89,10 +99,13 @@ router.post('/', requirePermission('customer.write'), catchAsync(async (req, res
 
   await execute(`
     INSERT INTO QA_CUSTOMERS (
-      CUSTOMER_ID, CUSTOMER_NAME, CONTACT_PERSON, CONTACT_EMAIL, 
-      LOCATION, PO_BOX, REGION, ADDRESS, NOTES, CUSTOMER_SINCE
+      CUSTOMER_ID, CUSTOMER_NAME, CONTACT_PERSON, CONTACT_EMAIL,
+      LOCATION, PO_BOX, REGION, ADDRESS, NOTES, CUSTOMER_SINCE,
+      TIN, DEFAULT_PAYMENT_TERMS, CREDIT_LIMIT, CREDIT_HOLD,
+      INDUSTRY, SIZE_BAND, WHT_PROFILE_CODE
     ) VALUES (
-      :id, :name, :cp, :ce, :loc, :po, :reg, :addr, :notes, :sinc
+      :id, :name, :cp, :ce, :loc, :po, :reg, :addr, :notes, :sinc,
+      :tin, :dpt, :clim, :chold, :ind, :sb, :wpc
     )
   `, {
     id: cust.id,
@@ -104,7 +117,17 @@ router.post('/', requirePermission('customer.write'), catchAsync(async (req, res
     reg: cust.region || null,
     addr: cust.address || null,
     notes: cust.notes || null,
-    sinc: cust.customerSince || null
+    sinc: cust.customerSince || null,
+    // Module 1 master-data inputs. All optional — defaults match the
+    // schema defaults (Net 30, 0 credit, no hold) when the frontend
+    // doesn't send them yet (back-compat for older UIs).
+    tin:   cust.tin || null,
+    dpt:   cust.defaultPaymentTerms || 'Net 30',
+    clim:  Number(cust.creditLimit) || 0,
+    chold: cust.creditHold ? 'Y' : 'N',
+    ind:   cust.industry || null,
+    sb:    cust.sizeBand || null,
+    wpc:   cust.whtProfileCode || null
   });
 
   // Emit WebSocket event so clients auto-update
@@ -136,6 +159,9 @@ router.post('/bulk', requirePermission('customer.write'), catchAsync(async (req,
     });
   }
 
+  // Module 1 fields included in both UPDATE and INSERT branches so CSV
+  // imports can populate or refresh the new master-data columns alongside
+  // the original fields.
   const MERGE_SQL = `
     MERGE INTO QA_CUSTOMERS t
     USING (SELECT :id AS CUSTOMER_ID FROM DUAL) s
@@ -143,12 +169,18 @@ router.post('/bulk', requirePermission('customer.write'), catchAsync(async (req,
     WHEN MATCHED THEN UPDATE SET
       CUSTOMER_NAME = :name, CONTACT_PERSON = :cp, CONTACT_EMAIL = :ce,
       LOCATION = :loc, PO_BOX = :po, REGION = :reg, ADDRESS = :addr,
-      NOTES = :notes, CUSTOMER_SINCE = :sinc, UPDATED_AT = SYSTIMESTAMP
+      NOTES = :notes, CUSTOMER_SINCE = :sinc,
+      TIN = :tin, DEFAULT_PAYMENT_TERMS = :dpt, CREDIT_LIMIT = :clim,
+      CREDIT_HOLD = :chold, INDUSTRY = :ind, SIZE_BAND = :sb,
+      WHT_PROFILE_CODE = :wpc, UPDATED_AT = SYSTIMESTAMP
     WHEN NOT MATCHED THEN INSERT (
       CUSTOMER_ID, CUSTOMER_NAME, CONTACT_PERSON, CONTACT_EMAIL,
-      LOCATION, PO_BOX, REGION, ADDRESS, NOTES, CUSTOMER_SINCE
+      LOCATION, PO_BOX, REGION, ADDRESS, NOTES, CUSTOMER_SINCE,
+      TIN, DEFAULT_PAYMENT_TERMS, CREDIT_LIMIT, CREDIT_HOLD,
+      INDUSTRY, SIZE_BAND, WHT_PROFILE_CODE
     ) VALUES (
-      :id, :name, :cp, :ce, :loc, :po, :reg, :addr, :notes, :sinc
+      :id, :name, :cp, :ce, :loc, :po, :reg, :addr, :notes, :sinc,
+      :tin, :dpt, :clim, :chold, :ind, :sb, :wpc
     )
   `;
 
@@ -173,7 +205,14 @@ router.post('/bulk', requirePermission('customer.write'), catchAsync(async (req,
           reg:   c.region || null,
           addr:  c.address || null,
           notes: c.notes || null,
-          sinc:  c.customerSince || null
+          sinc:  c.customerSince || null,
+          tin:   c.tin || null,
+          dpt:   c.defaultPaymentTerms || 'Net 30',
+          clim:  Number(c.creditLimit) || 0,
+          chold: c.creditHold ? 'Y' : 'N',
+          ind:   c.industry || null,
+          sb:    c.sizeBand || null,
+          wpc:   c.whtProfileCode || null
         }, { autoCommit: false });
         processed++;
       } catch (err) {
@@ -217,7 +256,14 @@ router.put('/:id', requirePermission('customer.write'), catchAsync(async (req, r
     region: 'REGION',
     address: 'ADDRESS',
     notes: 'NOTES',
-    customerSince: 'CUSTOMER_SINCE'
+    customerSince: 'CUSTOMER_SINCE',
+    // Module 1 master-data fields
+    tin: 'TIN',
+    defaultPaymentTerms: 'DEFAULT_PAYMENT_TERMS',
+    creditLimit: 'CREDIT_LIMIT',
+    industry: 'INDUSTRY',
+    sizeBand: 'SIZE_BAND',
+    whtProfileCode: 'WHT_PROFILE_CODE'
   };
 
   for (const [key, dbCol] of Object.entries(mappings)) {
@@ -225,6 +271,13 @@ router.put('/:id', requirePermission('customer.write'), catchAsync(async (req, r
       updates.push(`${dbCol} = :${key}`);
       binds[key] = cust[key];
     }
+  }
+
+  // CREDIT_HOLD is a Y/N CHAR — boolean from the frontend needs translating
+  // here rather than relying on the generic mappings loop above.
+  if (cust.creditHold !== undefined) {
+    updates.push('CREDIT_HOLD = :creditHold');
+    binds.creditHold = cust.creditHold ? 'Y' : 'N';
   }
 
   if (updates.length > 0) {

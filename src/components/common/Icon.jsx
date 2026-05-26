@@ -161,7 +161,29 @@ const FA_TO_LUCIDE = {
   'thumbs-up':                  'ThumbsUp',
   'thumbs-down':                'ThumbsDown',
   'gavel':                      'Gavel',
-  'briefcase':                  'Briefcase'
+  'briefcase':                  'Briefcase',
+
+  // Module 5 — Reports hub icons. Map to clean Lucide equivalents so
+  // every card in the hub uses the Fluent 2 monoline aesthetic.
+  'sack-dollar':                'Wallet',
+  'crown':                      'Crown',
+  'trophy':                     'Trophy',
+  'bullseye':                   'Target',
+  'chart-column':               'BarChart3',
+  'stopwatch':                  'Timer',
+  'box-archive':                'Archive',
+  'magnifying-glass':           'Search',
+  'scale-balanced':             'Scale',
+  'hourglass-half':             'Hourglass',
+  'arrows-rotate':              'RefreshCw',
+  'user-group':                 'Users',
+  'triangle-exclamation':       'AlertTriangle',
+  'receipt':                    'Receipt',
+  'book':                       'Book',
+  'ban':                        'Ban',
+  'inbox':                      'Inbox',
+  'file-excel':                 'FileSpreadsheet',
+  'file-zipper':                'FileArchive'
 };
 
 /* Class strings the app sometimes appends to FA `id` (e.g. "fa-spin").

@@ -11,7 +11,10 @@ const LABEL_CLASS = 'text-sm font-medium text-ink-muted';
 const ItemModal = ({ item, onSave, onClose }) => {
     const [formData, setFormData] = useState(item || {
         name: '', vendor: '', stock: 0, price: 0, restockLimit: 10,
-        currency: 'GHS', itemType: 'Hardware', weightKg: 0
+        currency: 'GHS', itemType: 'Hardware', weightKg: 0,
+        // Module 1 — item taxonomy (free text initially; promoted to
+        // controlled vocabulary in Module 5 if fragmentation appears).
+        itemCategory: '', itemSubcategory: ''
     });
 
     const handleChange = (e) => {
@@ -135,6 +138,35 @@ const ItemModal = ({ item, onSave, onClose }) => {
                             min="0"
                             step="1"
                             onKeyDown={(e) => ['-', '.', 'e'].includes(e.key) && e.preventDefault()}
+                        />
+                    </div>
+                </div>
+
+                {/* Module 1 — item taxonomy. Two free-text inputs that feed
+                    the Spend-by-Category report (Module 5). Free text rather
+                    than a dropdown for now — we don't have a master category
+                    table yet. Existing items get blank values until edited. */}
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className={LABEL_CLASS}>Category</label>
+                        <input
+                            type="text"
+                            name="itemCategory"
+                            value={formData.itemCategory || ''}
+                            onChange={handleChange}
+                            className={INPUT_CLASS}
+                            placeholder="e.g. Networking, Power, Cabling"
+                        />
+                    </div>
+                    <div>
+                        <label className={LABEL_CLASS}>Subcategory (optional)</label>
+                        <input
+                            type="text"
+                            name="itemSubcategory"
+                            value={formData.itemSubcategory || ''}
+                            onChange={handleChange}
+                            className={INPUT_CLASS}
+                            placeholder="e.g. Switches, UPS, Cat6"
                         />
                     </div>
                 </div>

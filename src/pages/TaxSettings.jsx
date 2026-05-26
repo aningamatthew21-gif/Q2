@@ -8,6 +8,7 @@ import TargetsSettings from '../components/settings/TargetsSettings';
 import SignaturesSettings from '../components/settings/SignaturesSettings';
 import PriceListSettings from '../components/settings/PriceListSettings';
 import CompanyDataSettings from '../components/settings/CompanyDataSettings';
+import WhtSettings from '../components/settings/WhtSettings';
 
 import { useActivityLog } from '../hooks/useActivityLog';
 import { usePrompt } from '../components/v2/PromptDialog';
@@ -223,6 +224,9 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
                 {/* Tab Navigation */}
                 <div className="flex space-x-4 mb-6 border-b border-gray-200 pb-1 overflow-x-auto">
                     <button onClick={() => setActiveTab('taxes')} className={`py-2 px-4 font-medium text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'taxes' ? 'bg-white border-t border-l border-r border-gray-200 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Tax & Rates</button>
+                    {can(currentUser, 'wht.config.edit') && (
+                        <button onClick={() => setActiveTab('wht')} className={`py-2 px-4 font-medium text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'wht' ? 'bg-white border-t border-l border-r border-gray-200 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Withholding Taxes</button>
+                    )}
                     <button onClick={() => setActiveTab('signatures')} className={`py-2 px-4 font-medium text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'signatures' ? 'bg-white border-t border-l border-r border-gray-200 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Signatures</button>
                     <button onClick={() => setActiveTab('pricelist')} className={`py-2 px-4 font-medium text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'pricelist' ? 'bg-white border-t border-l border-r border-gray-200 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Price List</button>
                     <button onClick={() => setActiveTab('targets')} className={`py-2 px-4 font-medium text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'targets' ? 'bg-white border-t border-l border-r border-gray-200 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>Revenue Targets</button>
@@ -401,6 +405,10 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
                             )}
                         </div>}
                     </>
+                )}
+
+                {activeTab === 'wht' && can(currentUser, 'wht.config.edit') && (
+                    <WhtSettings />
                 )}
 
                 {activeTab === 'signatures' && (

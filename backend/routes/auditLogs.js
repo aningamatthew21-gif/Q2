@@ -44,9 +44,14 @@ router.get('/', catchAsync(async (req, res) => {
     startDate, endDate,
     category, severity, entityType,
     userId, action,
-    limit = 500,
     offset = 0
   } = req.query;
+
+  // OWASP API4:2023 — Unrestricted Resource Consumption. Cap the page
+  // size at 1000 (generous for audit-log export use cases) so a crafted
+  // ?limit=999999 can't sweep the entire QA_AUDIT_LOGS table in one
+  // request and starve the connection pool / DB CPU.
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 500), 1000);
 
   let whereClause = 'WHERE 1=1';
   const binds = {};

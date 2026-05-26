@@ -32,6 +32,10 @@ import AllInvoices from '../pages/AllInvoices';
 import InvoiceEditor from '../pages/InvoiceEditor';
 import InventoryManagement from '../pages/InventoryManagement';
 import SalesPriceList from '../pages/SalesPriceList';
+import CollectionsWorkbench from '../pages/CollectionsWorkbench';
+import CustomerStatement from '../pages/CustomerStatement';
+import GoodsReceipts from '../pages/GoodsReceipts';
+import VendorScorecard from '../pages/VendorScorecard';
 import CustomerManagement from '../pages/CustomerManagement';
 import CustomerPortal from '../pages/CustomerPortal';
 import TaxSettings from '../pages/TaxSettings';
@@ -47,6 +51,36 @@ import RFQBuilder from '../pages/RFQBuilder';
 import RFQDetail from '../pages/RFQDetail';
 import ProcurementSettings from '../pages/ProcurementSettings';
 import UserManagement from '../pages/UserManagement';
+// Module 5 — Reports layer (hub + placeholder for all 24 reports)
+import ReportsHub from '../pages/reports/ReportsHub';
+import ReportPlaceholder from '../pages/reports/ReportPlaceholder';
+// Module 5 — Phase 5.1 Finance reports (built out one-by-one)
+import ArAgingReport from '../pages/reports/finance/ArAgingReport';
+import VatComplianceReport from '../pages/reports/finance/VatComplianceReport';
+import SalesRegisterReport from '../pages/reports/finance/SalesRegisterReport';
+import WhtCollectedReport from '../pages/reports/finance/WhtCollectedReport';
+import DsoTrendReport from '../pages/reports/finance/DsoTrendReport';
+import CashCollectionsReport from '../pages/reports/finance/CashCollectionsReport';
+import CustomerProfitabilityReport from '../pages/reports/finance/CustomerProfitabilityReport';
+import BadDebtProvisionReport from '../pages/reports/finance/BadDebtProvisionReport';
+// Module 5.2 — Procurement reports (8)
+import PrBacklogAgingReport     from '../pages/reports/procurement/PrBacklogAgingReport';
+import RfqCycleTimeReport       from '../pages/reports/procurement/RfqCycleTimeReport';
+import OpenRfqsAttentionReport  from '../pages/reports/procurement/OpenRfqsAttentionReport';
+import SpendByVendorReport      from '../pages/reports/procurement/SpendByVendorReport';
+import SpendByCategoryReport    from '../pages/reports/procurement/SpendByCategoryReport';
+import OverrideAuditReport      from '../pages/reports/procurement/OverrideAuditReport';
+import LeadTimeAccuracyReport   from '../pages/reports/procurement/LeadTimeAccuracyReport';
+import PrCancellationReport     from '../pages/reports/procurement/PrCancellationReport';
+// Module 5.3 — Sales reports (8)
+import SalesPipelineReport      from '../pages/reports/sales/SalesPipelineReport';
+import QuoteConversionReport    from '../pages/reports/sales/QuoteConversionReport';
+import RevenueVsTargetReport    from '../pages/reports/sales/RevenueVsTargetReport';
+import SalesLeaderboardReport   from '../pages/reports/sales/SalesLeaderboardReport';
+import QuoteAgingReport         from '../pages/reports/sales/QuoteAgingReport';
+import WinLossReport            from '../pages/reports/sales/WinLossReport';
+import TopCustomersReport       from '../pages/reports/sales/TopCustomersReport';
+import TopProductsReport        from '../pages/reports/sales/TopProductsReport';
 
 const AppContext = createContext();
 
@@ -137,7 +171,21 @@ const VALID_PAGES = new Set([
     'inventory', 'customers', 'customerPortal', 'taxSettings', 'auditTrail',
     'pricingManagement', 'vendors', 'procurementDashboard', 'purchaseRequisitions',
     'purchaseRequisitionDetail', 'rfqList', 'rfqBuilder', 'rfqDetail', 'procurementSettings',
-    'mySignatures', 'userManagement'
+    'mySignatures', 'userManagement',
+    // Module 1 — Sales Price List (top-level)
+    'salesPriceList',
+    // Module 2 — Collections workbench + per-customer statement
+    'collectionsWorkbench', 'customerStatement',
+    // Module 3 — Goods receipts list + vendor scorecards
+    'goodsReceipts', 'vendorScorecard',
+    // Module 5 — Reports layer (hub + 24 reports)
+    'reportsHub',
+    'reportArAging', 'reportDsoTrend', 'reportCashCollections', 'reportSalesRegister',
+    'reportVatCompliance', 'reportWhtCollected', 'reportCustomerProfitability', 'reportBadDebtProvision',
+    'reportSalesPipeline', 'reportQuoteConversion', 'reportRevenueVsTarget', 'reportSalesLeaderboard',
+    'reportQuoteAging', 'reportWinLoss', 'reportTopCustomers', 'reportTopProducts',
+    'reportPrBacklog', 'reportRfqCycleTime', 'reportRfqsAttention', 'reportSpendByVendor',
+    'reportSpendByCategory', 'reportOverrideAudit', 'reportLeadTimeAccuracy', 'reportPrCancellation'
 ]);
 
 // Read the page from the current URL ?page= param (if valid)
@@ -212,7 +260,10 @@ export const AppProvider = ({ children }) => {
                     }
                 } catch (error) {
                     console.error('Session expired or invalid:', error);
+                    // SP1-H1+H2+H3 — clear ALL session keys on init failure
                     localStorage.removeItem('auth_token');
+                    localStorage.removeItem('refresh_token');
+                    localStorage.removeItem('app_user');
                     // If session is invalid, redirect to login and clean URL
                     setPage('login');
                     const url = new URL(window.location);
@@ -249,7 +300,20 @@ export const AppProvider = ({ children }) => {
                     originalUserId: userId
                 });
             }
+            // SP1-H1+H2+H3 — revoke the refresh token server-side before
+            // clearing local storage. Fire-and-forget; we don't block the
+            // logout UX on the round-trip.
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (refreshToken) {
+                fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken })
+                }).catch(() => { /* best-effort */ });
+            }
             localStorage.removeItem('auth_token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('app_user');
         } else {
             // Normal navigation: push a new history entry
             url.searchParams.set('page', newPage);
@@ -289,10 +353,15 @@ export const AppProvider = ({ children }) => {
             if (!userEmail) return;
 
             const response = await api.post('/auth/verify-otp', { email: userEmail, otp: otpCode });
-            
+
             if (response.success) {
-                // Store JWT
-                localStorage.setItem('auth_token', response.token);
+                // SP1-H1+H2+H3 — store BOTH access + refresh tokens.
+                // The backend still returns `token` for backward-compat;
+                // new clients should read `accessToken` explicitly.
+                localStorage.setItem('auth_token', response.accessToken || response.token);
+                if (response.refreshToken) {
+                    localStorage.setItem('refresh_token', response.refreshToken);
+                }
                 
                 const user = response.user;
                 setAppUser({ email: user.email, role: user.role, name: user.name });
@@ -377,6 +446,72 @@ export const AppProvider = ({ children }) => {
                 return <InventoryManagement {...commonProps} />;
             case 'salesPriceList':
                 return <SalesPriceList {...commonProps} />;
+            case 'collectionsWorkbench':
+                return <CollectionsWorkbench {...commonProps} />;
+            case 'customerStatement':
+                return <CustomerStatement {...commonProps} pageContext={pageContext} />;
+            case 'goodsReceipts':
+                return <GoodsReceipts {...commonProps} />;
+            case 'vendorScorecard':
+                return <VendorScorecard {...commonProps} />;
+            // ── Module 5 — Reports layer ──────────────────────────────
+            // Hub + 24 report pages. Phase 5.0 ships every report as a
+            // <ReportPlaceholder> backed by its real endpoint (which
+            // returns an empty envelope). Later phases swap each case
+            // for the real report component.
+            case 'reportsHub':
+                return <ReportsHub {...commonProps} />;
+            // Finance (Phase 5.1) — AR Aging is the first real implementation
+            case 'reportArAging':
+                return <ArAgingReport {...commonProps} />;
+            case 'reportDsoTrend':
+                return <DsoTrendReport {...commonProps} />;
+            case 'reportCashCollections':
+                return <CashCollectionsReport {...commonProps} />;
+            case 'reportSalesRegister':
+                return <SalesRegisterReport {...commonProps} />;
+            case 'reportVatCompliance':
+                return <VatComplianceReport {...commonProps} />;
+            case 'reportWhtCollected':
+                return <WhtCollectedReport {...commonProps} />;
+            case 'reportCustomerProfitability':
+                return <CustomerProfitabilityReport {...commonProps} />;
+            case 'reportBadDebtProvision':
+                return <BadDebtProvisionReport {...commonProps} />;
+            // Sales (Phase 5.3)
+            case 'reportSalesPipeline':
+                return <SalesPipelineReport {...commonProps} />;
+            case 'reportQuoteConversion':
+                return <QuoteConversionReport {...commonProps} />;
+            case 'reportRevenueVsTarget':
+                return <RevenueVsTargetReport {...commonProps} />;
+            case 'reportSalesLeaderboard':
+                return <SalesLeaderboardReport {...commonProps} />;
+            case 'reportQuoteAging':
+                return <QuoteAgingReport {...commonProps} />;
+            case 'reportWinLoss':
+                return <WinLossReport {...commonProps} />;
+            case 'reportTopCustomers':
+                return <TopCustomersReport {...commonProps} />;
+            case 'reportTopProducts':
+                return <TopProductsReport {...commonProps} />;
+            // Procurement (Phase 5.2)
+            case 'reportPrBacklog':
+                return <PrBacklogAgingReport {...commonProps} />;
+            case 'reportRfqCycleTime':
+                return <RfqCycleTimeReport {...commonProps} />;
+            case 'reportRfqsAttention':
+                return <OpenRfqsAttentionReport {...commonProps} />;
+            case 'reportSpendByVendor':
+                return <SpendByVendorReport {...commonProps} />;
+            case 'reportSpendByCategory':
+                return <SpendByCategoryReport {...commonProps} />;
+            case 'reportOverrideAudit':
+                return <OverrideAuditReport {...commonProps} />;
+            case 'reportLeadTimeAccuracy':
+                return <LeadTimeAccuracyReport {...commonProps} />;
+            case 'reportPrCancellation':
+                return <PrCancellationReport {...commonProps} />;
             case 'customers':
                 return <CustomerManagement {...commonProps} />;
             case 'customerPortal':

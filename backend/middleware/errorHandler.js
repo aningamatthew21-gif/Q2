@@ -20,8 +20,12 @@ function errorHandler(err, req, res, next) {
     if (err.message.includes('ORA-00001')) {
       message = 'A record with this identifier already exists.';
     } else {
-      // Hide raw Oracle queries from the frontend
-      message = 'A database error occurred. Please try again.';
+      // Hide raw Oracle SQL from the frontend but keep the ORA code so
+      // the user (and us) can diagnose without backend log access. The
+      // code on its own does not leak schema names or query structure.
+      const codeMatch = err.message.match(/ORA-(\d{5})/);
+      const oraCode = codeMatch ? `ORA-${codeMatch[1]}` : 'database error';
+      message = `Database error (${oraCode}). Please try again, or contact the administrator if it persists.`;
     }
   }
 

@@ -31,14 +31,59 @@ function safeParse(str, defaultVal = null) {
 }
 
 /**
+ * Helper: parse a payment-terms string into a day count.
+ *
+ *   'Net 0' / 'Due on receipt'  → 0
+ *   'Net 7'  / '7'              → 7
+ *   'Net 30' / '30' / '30 days' → 30
+ *   anything else               → 30  (safe default, matches schema default)
+ *
+ * Centralised here so the same logic applies whether the frontend sends a
+ * 'Net 30' string or a bare number. Used by the POST handler below to
+ * compute DUE_DATE from INVOICE_DATE + the snapshotted payment terms.
+ */
+function paymentTermsToDays(term) {
+  if (term === undefined || term === null || term === '') return 30;
+  const s = String(term).trim().toLowerCase();
+  if (s === 'due on receipt' || s === 'net 0' || s === '0') return 0;
+  const m = s.match(/(\d+)/);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) && n >= 0 ? n : 30;
+  }
+  return 30;
+}
+
+/**
+ * Helper: compute DUE_DATE from an INVOICE_DATE string + days offset.
+ * Returns a JS Date the oracledb driver binds into the DATE column.
+ * Falls back to today + offset if invoiceDate is missing/invalid.
+ */
+function computeDueDate(invoiceDateStr, daysOffset) {
+  const base = invoiceDateStr ? new Date(invoiceDateStr) : new Date();
+  const safe = isNaN(base.getTime()) ? new Date() : base;
+  const d = new Date(safe);
+  d.setDate(d.getDate() + (Number(daysOffset) || 0));
+  return d;
+}
+
+/**
  * GET /api/invoices
  * Supports pagination and filtering
  */
 router.get('/', catchAsync(async (req, res) => {
-  const { status, customerId, createdBy, startDate, endDate, page = 1, limit = 1000 } = req.query;
+  const { status, customerId, createdBy, startDate, endDate } = req.query;
+  // OWASP API4:2023 — Unrestricted Resource Consumption. Hard-cap the
+  // limit at 1000 so ?limit=999999 can't sweep the whole invoice table.
+  // Default 1000 preserves prior behavior; max 1000 prevents abuse.
+  const page  = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 1000), 1000);
   const offset = (page - 1) * limit;
 
-  let sql = 'SELECT * FROM QA_INVOICES WHERE 1=1';
+  // SOFT-DELETE FILTER — exclude rows marked IS_DELETED='Y'. NULL-safe
+  // for any historical rows that pre-date the Module-SP1 migration.
+  // The functional index IDX_INV_IS_DELETED makes this filter free.
+  let sql = "SELECT * FROM QA_INVOICES WHERE (IS_DELETED IS NULL OR IS_DELETED = 'N')";
   const binds = {};
 
   // SCOPE FILTER — a user without `invoice.read.all` (e.g. a sales_officer
@@ -140,6 +185,9 @@ router.get('/', catchAsync(async (req, res) => {
       customerId: row.CUSTOMER_ID,
       customerName: row.CUSTOMER_NAME,
       date: row.INVOICE_DATE,
+      // Module 1 — DUE_DATE + PAYMENT_TERMS snapshot
+      dueDate: row.DUE_DATE || null,
+      paymentTerms: row.PAYMENT_TERMS || null,
       currency: row.CURRENCY,
       exchangeRate: row.EXCHANGE_RATE,
       subtotal: row.SUBTOTAL,
@@ -151,6 +199,10 @@ router.get('/', catchAsync(async (req, res) => {
       amountPaid: row.AMOUNT_PAID,
       balanceDue: row.BALANCE_DUE,
       rejectionReason: row.REJECTION_REASON,
+      // Module 4 — controlled vocabulary alongside the legacy free-text reason
+      rejectionReasonCode: row.REJECTION_REASON_CODE || null,
+      lostToCompetitor:    row.LOST_TO_COMPETITOR || null,
+      winReasonCode:       row.WIN_REASON_CODE || null,
       signatureData: row.SIGNATURE_DATA,
       sourcingStatus: row.SOURCING_STATUS || 'NONE',
       prCount: Number(row.PR_COUNT || 0),
@@ -213,7 +265,13 @@ router.get('/', catchAsync(async (req, res) => {
 router.get('/:id', catchAsync(async (req, res) => {
   const { id } = req.params;
 
-  const result = await execute('SELECT * FROM QA_INVOICES WHERE INVOICE_ID = :id', { id });
+  // Soft-delete filter: treat IS_DELETED='Y' as 404. Admin can restore
+  // via POST /:id/restore which flips the flag back.
+  const result = await execute(
+    `SELECT * FROM QA_INVOICES
+     WHERE INVOICE_ID = :id AND (IS_DELETED IS NULL OR IS_DELETED = 'N')`,
+    { id }
+  );
   if (!result.rows || result.rows.length === 0) {
     return res.status(404).json({ success: false, error: 'Invoice not found' });
   }
@@ -255,6 +313,9 @@ router.get('/:id', catchAsync(async (req, res) => {
     customerId: row.CUSTOMER_ID,
     customerName: row.CUSTOMER_NAME,
     date: row.INVOICE_DATE,
+    // Module 1 — DUE_DATE + PAYMENT_TERMS snapshot
+    dueDate: row.DUE_DATE || null,
+    paymentTerms: row.PAYMENT_TERMS || null,
     currency: row.CURRENCY,
     exchangeRate: row.EXCHANGE_RATE,
     subtotal: row.SUBTOTAL,
@@ -269,6 +330,10 @@ router.get('/:id', catchAsync(async (req, res) => {
     amountPaid: row.AMOUNT_PAID,
     balanceDue: row.BALANCE_DUE,
     rejectionReason: row.REJECTION_REASON,
+    // Module 4 — controlled vocabulary alongside the legacy free-text reason
+    rejectionReasonCode: row.REJECTION_REASON_CODE || null,
+    lostToCompetitor:    row.LOST_TO_COMPETITOR || null,
+    winReasonCode:       row.WIN_REASON_CODE || null,
     signatureData: row.SIGNATURE_DATA,
     convertedFromQuote: row.CONVERTED_FROM_QUOTE,
     sourcingStatus: row.SOURCING_STATUS || 'NONE',
@@ -418,6 +483,31 @@ router.post('/', requirePermission('quote.create'), catchAsync(async (req, res) 
     }
   }
 
+  // Module 1 — resolve PAYMENT_TERMS + DUE_DATE before the transaction.
+  //   1. If the frontend explicitly sent `paymentTerms`, snapshot that.
+  //   2. Else look up the customer's DEFAULT_PAYMENT_TERMS so the invoice
+  //      inherits the right Net-N cadence at creation time (snapshot —
+  //      retroactive customer-default changes don't rewrite history).
+  //   3. If the frontend explicitly sent `dueDate`, honour it; otherwise
+  //      compute from invoice date + parsed terms.
+  let paymentTermsSnapshot = inv.paymentTerms || null;
+  if (!paymentTermsSnapshot && inv.customerId) {
+    try {
+      const custRes = await execute(
+        `SELECT DEFAULT_PAYMENT_TERMS FROM QA_CUSTOMERS WHERE CUSTOMER_ID = :id`,
+        { id: inv.customerId }, { outFormat: 4002 }
+      );
+      paymentTermsSnapshot = custRes.rows?.[0]?.DEFAULT_PAYMENT_TERMS || 'Net 30';
+    } catch (_e) {
+      paymentTermsSnapshot = 'Net 30';
+    }
+  }
+  if (!paymentTermsSnapshot) paymentTermsSnapshot = 'Net 30';
+
+  const dueDate = inv.dueDate
+    ? new Date(inv.dueDate)
+    : computeDueDate(inv.date, paymentTermsToDays(paymentTermsSnapshot));
+
   await transaction(async (conn) => {
     // 1. Insert Parent
     // Phase 4 — snapshot the original estimate for invoices that require procurement,
@@ -429,10 +519,12 @@ router.post('/', requirePermission('quote.create'), catchAsync(async (req, res) 
         INVOICE_ID, APPROVED_INVOICE_ID, SALESPERSON_ID, CREATED_BY,
         CUSTOMER_ID, CUSTOMER_NAME, INVOICE_DATE, CURRENCY, EXCHANGE_RATE,
         SUBTOTAL, TOTAL, TAXES, TAX_BREAKDOWN, STATUS, AMOUNT_PAID, BALANCE_DUE,
-        CONVERTED_FROM_QUOTE, SOURCING_STATUS, PR_COUNT, ORIGINAL_ESTIMATE
+        CONVERTED_FROM_QUOTE, SOURCING_STATUS, PR_COUNT, ORIGINAL_ESTIMATE,
+        DUE_DATE, PAYMENT_TERMS
       ) VALUES (
         :id, :aid, :spid, :cb, :cid, :cn, :idate, :curr, :exr,
-        :sub, :tot, :tax, :tb, :st, :p, :b, :cqt, :ss, :pc, :oe
+        :sub, :tot, :tax, :tb, :st, :p, :b, :cqt, :ss, :pc, :oe,
+        :ddt, :ptm
       )
     `, {
       id: inv.id,
@@ -454,7 +546,10 @@ router.post('/', requirePermission('quote.create'), catchAsync(async (req, res) 
       cqt: inv.convertedFromQuote || null,
       ss: sourcingStatus,
       pc: prDrafts.length,
-      oe: originalEstimate
+      oe: originalEstimate,
+      // Module 1 — computed above
+      ddt: dueDate,
+      ptm: paymentTermsSnapshot
     });
 
     // 2. Insert Line Items
@@ -691,7 +786,19 @@ router.put('/:id', catchAsync(async (req, res) => {
     rejectionReason: 'REJECTION_REASON',
     signatureData: 'SIGNATURE_DATA',
     amountPaid: 'AMOUNT_PAID',
-    balanceDue: 'BALANCE_DUE'
+    balanceDue: 'BALANCE_DUE',
+    // Module 1 — finance can override the snapshotted payment terms or
+    // due date (e.g. negotiated extension, special-terms invoice). Both
+    // are optional; if omitted, the original snapshot stands.
+    paymentTerms: 'PAYMENT_TERMS',
+    // Module 4 — controlled rejection / win vocabulary. Persisted
+    // alongside the legacy free-text REJECTION_REASON so the
+    // upcoming win/loss + cancellation-analysis reports have a
+    // GROUP BY-able column. All three are optional — when omitted
+    // the existing free-text path still works for legacy clients.
+    rejectionReasonCode: 'REJECTION_REASON_CODE',
+    lostToCompetitor:    'LOST_TO_COMPETITOR',
+    winReasonCode:       'WIN_REASON_CODE'
   };
 
   for (const [key, dbCol] of Object.entries(mappings)) {
@@ -699,6 +806,14 @@ router.put('/:id', catchAsync(async (req, res) => {
       sqlSets.push(`${dbCol} = :${key}`);
       binds[key] = updates[key];
     }
+  }
+
+  // DUE_DATE is a DATE column — needs JS Date binding, not string. Handle
+  // it separately from the generic mapping loop so the conversion happens
+  // here rather than relying on the loop's pass-through.
+  if (updates.dueDate !== undefined) {
+    sqlSets.push('DUE_DATE = :dueDate');
+    binds.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
   }
 
   // Handle timestamp updates explicitly based on status transitions
@@ -949,16 +1064,66 @@ router.put('/:id', catchAsync(async (req, res) => {
 }));
 
 /**
- * DELETE /api/invoices/:id
- * Controller/admin only — prevents sales users deleting invoices
+ * DELETE /api/invoices/:id  — SOFT DELETE
+ *
+ * Per Ghana Companies Act 2019 (6-year record retention) and
+ * ISO/IEC 27001:2022 A.8.10 (Information Deletion), financial
+ * records may NOT be permanently destroyed on demand. We retain
+ * the row + line items + payments forever and just mark the
+ * invoice IS_DELETED='Y' so it disappears from the active UI.
+ *
+ * Admin can recover via POST /:id/restore below.
+ *
+ * Controller/admin only — same access as before.
  */
 router.delete('/:id', requireRole('controller', 'admin'), catchAsync(async (req, res) => {
   const { id } = req.params;
-  // Cascades to LINE_ITEMS and PAYMENTS via FK ON DELETE CASCADE
-  await execute('DELETE FROM QA_INVOICES WHERE INVOICE_ID = :id', { id });
-  
+
+  // Idempotent: if already soft-deleted, return 200 — caller wanted it gone.
+  const result = await execute(
+    `UPDATE QA_INVOICES
+        SET IS_DELETED = 'Y',
+            DELETED_AT = SYSTIMESTAMP,
+            DELETED_BY = :usr
+      WHERE INVOICE_ID = :id AND (IS_DELETED IS NULL OR IS_DELETED = 'N')`,
+    { id, usr: req.user.email }
+  );
+
+  if (result.rowsAffected === 0) {
+    // Either invoice doesn't exist OR was already deleted. Disambiguate.
+    const check = await execute(
+      `SELECT IS_DELETED FROM QA_INVOICES WHERE INVOICE_ID = :id`,
+      { id }
+    );
+    if (!check.rows?.[0]) {
+      return res.status(404).json({ success: false, error: 'Invoice not found.' });
+    }
+    // Already deleted — still success; nothing to do.
+  }
+
   emitToAll('invoices:updated');
-  res.json({ success: true });
+  res.json({ success: true, softDeleted: true });
+}));
+
+/**
+ * POST /api/invoices/:id/restore — undo soft-delete.
+ * Admin recovery path; same role gate as delete.
+ */
+router.post('/:id/restore', requireRole('controller', 'admin'), catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const result = await execute(
+    `UPDATE QA_INVOICES
+        SET IS_DELETED = 'N',
+            DELETED_AT = NULL,
+            DELETED_BY = NULL
+      WHERE INVOICE_ID = :id AND IS_DELETED = 'Y'`,
+    { id }
+  );
+  if (result.rowsAffected === 0) {
+    return res.status(404).json({ success: false, error: 'No soft-deleted invoice with that ID.' });
+  }
+  emitToAll('invoices:updated');
+  res.json({ success: true, restored: true });
 }));
 
 /**

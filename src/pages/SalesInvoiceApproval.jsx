@@ -9,6 +9,8 @@ import { getInvoiceDate, generatePermanentId, getNextSequenceNumber } from '../u
 import { useApp } from '../context/AppContext';
 import { usePrompt } from '../components/v2/PromptDialog';
 import { can } from '../utils/permissions';
+// Module 4 — controlled rejection vocabulary
+import RejectWithReasonModal from '../components/modals/RejectWithReasonModal';
 
 const SalesInvoiceApproval = ({ navigateTo, userId }) => {
     const { askText } = usePrompt();
@@ -32,6 +34,11 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
     const [signaturesLoading, setSignaturesLoading] = useState(true);
     const [selectedSignature, setSelectedSignature] = useState(null);
     const [notification, setNotification] = useState(null);
+
+    // Module 4 — controlled-reason rejection modal state. We hold the
+    // invoiceId being rejected here so the modal's onSubmit knows which
+    // row to mutate without prop-drilling.
+    const [rejectingInvoiceId, setRejectingInvoiceId] = useState(null);
 
     // Filters
     const [selectedYear, setSelectedYear] = useState('All');
@@ -192,18 +199,11 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
                 // If stock is insufficient the PUT below returns 409 with
                 // code 'INSUFFICIENT_STOCK', already handled by the catch.
             } else if (newStatus === 'Rejected') {
-                const reason = await askText({
-                    title:        'Reject this invoice',
-                    description:  'The salesperson will see this reason when they reopen the invoice. Empty reasons fall back to a generic "Rejected by approver".',
-                    label:        'Reason for rejection',
-                    placeholder:  'e.g. unit price for line 2 looks too high — verify with vendor.',
-                    multiline:    true,
-                    maxLength:    500,
-                    confirmLabel: 'Reject invoice',
-                    confirmTone:  'danger'
-                });
-                if (reason === null) return;
-                updatePayload.rejectionReason = (reason || '').trim() || 'Rejected by approver';
+                // Module 4 — open the controlled-vocabulary modal instead of
+                // the free-text askText. The modal's onSubmit (see JSX below)
+                // calls performReject which finishes the PUT. Bail out here.
+                setRejectingInvoiceId(invoiceId);
+                return;
             }
 
             await api.put(`/invoices/${invoiceId}`, updatePayload);
@@ -237,11 +237,64 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
         }
     };
 
+    /**
+     * Module 4 — invoked by RejectWithReasonModal.onSubmit. Completes the
+     * rejection PUT with the controlled reason code + competitor name +
+     * notes. Mirrors the original askText path but with structured fields
+     * (alongside the legacy free-text REJECTION_REASON for back-compat).
+     */
+    const performReject = async ({ reasonCode, reasonLabel, lostToCompetitor, notes }) => {
+        const invoiceId = rejectingInvoiceId;
+        if (!invoiceId) return;
+        const invoiceForVersion = invoices.find(inv => inv.id === invoiceId);
+        try {
+            await api.put(`/invoices/${invoiceId}`, {
+                status: 'Rejected',
+                rejectionReason:     notes || reasonLabel || 'Rejected by approver',
+                rejectionReasonCode: reasonCode || null,
+                lostToCompetitor:    lostToCompetitor || null,
+                ...(invoiceForVersion?.rowVersion !== undefined
+                    ? { rowVersion: invoiceForVersion.rowVersion }
+                    : {})
+            });
+            setInvoices(current => current.filter(inv => inv.id !== invoiceId));
+            const invoice = invoices.find(inv => inv.id === invoiceId);
+            logActivity(userId, 'INVOICE_REJECTED',
+                `Invoice: ${invoice?.invoiceNumber || invoiceId}`, {
+                    statusBefore: 'Pending Approval',
+                    statusAfter: 'Rejected',
+                    approvedBy: userId,
+                    reasonCode,
+                    lostToCompetitor,
+                    totalValue: invoice?.total || 0
+                }).catch(err => console.error('Logging failed', err));
+            setNotification({ type: 'success', message: 'Invoice rejected.' });
+            setTimeout(() => setNotification(null), 3000);
+            setRejectingInvoiceId(null);
+        } catch (error) {
+            const serverMsg = error?.response?.data?.error || error?.message || 'Unknown error';
+            setNotification({ type: 'error', message: `Failed to reject invoice: ${serverMsg}` });
+            // Keep the modal open so the user can adjust + retry.
+            throw error;
+        }
+    };
+
     if (isLoading) return <div className="p-8 text-center">Loading pending invoices...</div>;
     if (error) return <div className="p-8 text-center text-red-600">Error: {error}</div>;
 
     return (
         <>
+            <RejectWithReasonModal
+                open={!!rejectingInvoiceId}
+                onClose={() => setRejectingInvoiceId(null)}
+                onSubmit={performReject}
+                category="INVOICE_REJECTION"
+                title="Reject this invoice"
+                description="The salesperson will see your reason on their My Invoices view and on the re-revised draft."
+                confirmLabel="Reject invoice"
+                confirmTone="danger"
+                requireReason
+            />
             <PageHeader
                 title={isController ? 'Controller Approval & Pricing' : 'Sales Approval'}
                 subtitle="Review and approve pending invoices. Select a signature before approving."

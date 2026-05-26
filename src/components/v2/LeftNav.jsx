@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, FilePlus, Files, UserCheck, CheckCheck,
   ClipboardList, FileText, Factory, Boxes, Users, Tags,
-  History, Sliders, X, ShieldCheck
+  History, Sliders, X, ShieldCheck, Wallet, PackageCheck, BarChart3
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useApp } from '../../context/AppContext';
@@ -28,13 +28,18 @@ import { canOpenPage, legacyRoleToTiered, ROLES } from '../../utils/permissions'
 const ROLE_SECTIONS = {
   sales: [
     { items: [
-      { page: 'salesDashboard',      label: 'Dashboard',     icon: LayoutDashboard },
-      { page: 'quoting',             label: 'New Quote',     icon: FilePlus       },
-      { page: 'myInvoices',          label: 'My Invoices',   icon: UserCheck      },
-      { page: 'salesInvoiceApproval',label: 'Approvals',     icon: CheckCheck     },
-      { page: 'salesPriceList',      label: 'Price List',    icon: Tags           },
-      { page: 'mySignatures',        label: 'My Signatures', icon: FileText       },
-      { page: 'auditTrail',          label: 'Audit',         icon: History        }
+      { page: 'salesDashboard',       label: 'Dashboard',     icon: LayoutDashboard },
+      { page: 'quoting',              label: 'New Quote',     icon: FilePlus       },
+      { page: 'myInvoices',           label: 'My Invoices',   icon: UserCheck      },
+      { page: 'salesInvoiceApproval', label: 'Approvals',     icon: CheckCheck     },
+      { page: 'salesPriceList',       label: 'Price List',    icon: Tags           },
+      // Module 2 — sales head sees Collections (perm-gated below; officers
+      // without customer.statement.read are filtered out automatically).
+      { page: 'collectionsWorkbench', label: 'Collections',   icon: Wallet         },
+      // Module 5 — Reports hub (hub itself filters columns by perm)
+      { page: 'reportsHub',           label: 'Reports',       icon: BarChart3      },
+      { page: 'mySignatures',         label: 'My Signatures', icon: FileText       },
+      { page: 'auditTrail',           label: 'Audit',         icon: History        }
     ]}
   ],
   controller: [
@@ -43,21 +48,31 @@ const ROLE_SECTIONS = {
       { page: 'salesDashboard',      label: 'Sales',         icon: LayoutDashboard }
     ]},
     { title: 'Invoices', items: [
-      { page: 'invoices',            label: 'All invoices',  icon: Files          },
-      { page: 'myInvoices',          label: 'My invoices',   icon: UserCheck      },
-      { page: 'salesInvoiceApproval',label: 'Approvals',     icon: CheckCheck     },
-      { page: 'quoting',             label: 'New Quote',     icon: FilePlus       }
+      { page: 'invoices',             label: 'All invoices',   icon: Files          },
+      { page: 'myInvoices',           label: 'My invoices',    icon: UserCheck      },
+      { page: 'salesInvoiceApproval', label: 'Approvals',      icon: CheckCheck     },
+      { page: 'quoting',              label: 'New Quote',      icon: FilePlus       },
+      // Module 2 — Collections workbench
+      { page: 'collectionsWorkbench', label: 'Collections',    icon: Wallet         }
     ]},
     { title: 'Procurement', items: [
       { page: 'procurementDashboard',label: 'Dashboard',     icon: LayoutDashboard },
       { page: 'purchaseRequisitions',label: 'Requisitions',  icon: ClipboardList  },
       { page: 'rfqList',             label: 'RFQs',          icon: FileText       },
-      { page: 'vendors',             label: 'Vendors',       icon: Factory        }
+      { page: 'goodsReceipts',       label: 'Goods Receipts',icon: PackageCheck   },
+      { page: 'vendors',             label: 'Vendors',       icon: Factory        },
+      { page: 'vendorScorecard',     label: 'Vendor Scorecards', icon: BarChart3  }
     ]},
     { title: 'Catalogue', items: [
       { page: 'inventory',           label: 'Inventory',     icon: Boxes          },
       { page: 'pricingManagement',   label: 'Pricing',       icon: Tags           },
       { page: 'customers',           label: 'Customers',     icon: Users          }
+    ]},
+    // Module 5 — Reports hub. Finance head holds all 3 reports.run.*
+    // actions so the hub renders all three department columns. The
+    // hub filters per-user automatically.
+    { title: 'Reports', items: [
+      { page: 'reportsHub',          label: 'All Reports',   icon: BarChart3      }
     ]},
     { title: 'System', items: [
       { page: 'taxSettings',         label: 'Tax',           icon: Sliders        },
@@ -69,12 +84,17 @@ const ROLE_SECTIONS = {
   ],
   procurement: [
     { items: [
-      { page: 'procurementDashboard',label: 'Dashboard',     icon: LayoutDashboard },
-      { page: 'purchaseRequisitions',label: 'Requisitions',  icon: ClipboardList  },
-      { page: 'rfqList',             label: 'RFQs',          icon: FileText       },
-      { page: 'vendors',             label: 'Vendors',       icon: Factory        },
-      { page: 'mySignatures',        label: 'My Signatures', icon: FileText       },
-      { page: 'auditTrail',          label: 'Audit',         icon: History        }
+      { page: 'procurementDashboard',label: 'Dashboard',         icon: LayoutDashboard },
+      { page: 'purchaseRequisitions',label: 'Requisitions',      icon: ClipboardList  },
+      { page: 'rfqList',             label: 'RFQs',              icon: FileText       },
+      // Module 3 — Goods Receipts list (officer + head) + Vendor Scorecards (head only via perm gate)
+      { page: 'goodsReceipts',       label: 'Goods Receipts',    icon: PackageCheck   },
+      { page: 'vendors',             label: 'Vendors',           icon: Factory        },
+      { page: 'vendorScorecard',     label: 'Vendor Scorecards', icon: BarChart3      },
+      // Module 5 — Reports hub (procurement officer/head see procurement reports)
+      { page: 'reportsHub',          label: 'Reports',           icon: BarChart3      },
+      { page: 'mySignatures',        label: 'My Signatures',     icon: FileText       },
+      { page: 'auditTrail',          label: 'Audit',             icon: History        }
     ]}
   ]
 };
@@ -86,7 +106,36 @@ const DRILL_PARENT = {
   rfqDetail:                 'rfqList',
   purchaseRequisitionDetail: 'purchaseRequisitions',
   invoiceEditor:             'invoices',
-  salesInvoiceReview:        'salesInvoiceApproval'
+  salesInvoiceReview:        'salesInvoiceApproval',
+  // Module 2 — viewing a per-customer statement keeps Collections lit.
+  customerStatement:         'collectionsWorkbench',
+  // Module 3 — no detail drill-downs yet; receipts open in modal,
+  // scorecards are single-page.
+  // Module 5 — every individual report page keeps "Reports" lit in the rail.
+  reportArAging:                'reportsHub',
+  reportDsoTrend:               'reportsHub',
+  reportCashCollections:        'reportsHub',
+  reportSalesRegister:          'reportsHub',
+  reportVatCompliance:          'reportsHub',
+  reportWhtCollected:           'reportsHub',
+  reportCustomerProfitability:  'reportsHub',
+  reportBadDebtProvision:       'reportsHub',
+  reportSalesPipeline:          'reportsHub',
+  reportQuoteConversion:        'reportsHub',
+  reportRevenueVsTarget:        'reportsHub',
+  reportSalesLeaderboard:       'reportsHub',
+  reportQuoteAging:             'reportsHub',
+  reportWinLoss:                'reportsHub',
+  reportTopCustomers:           'reportsHub',
+  reportTopProducts:            'reportsHub',
+  reportPrBacklog:              'reportsHub',
+  reportRfqCycleTime:           'reportsHub',
+  reportRfqsAttention:          'reportsHub',
+  reportSpendByVendor:          'reportsHub',
+  reportSpendByCategory:        'reportsHub',
+  reportOverrideAudit:          'reportsHub',
+  reportLeadTimeAccuracy:       'reportsHub',
+  reportPrCancellation:         'reportsHub'
 };
 
 // Pick the visible section layout for the user. We honour BOTH the legacy

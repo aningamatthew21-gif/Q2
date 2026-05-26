@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api from '../api';
 import { useRealtimeInventory } from '../hooks/useRealtimeInventory';
 import { useRealtimeCustomers } from '../hooks/useRealtimeCustomers';
@@ -9,6 +9,10 @@ import Notification from '../components/common/Notification';
 import QuantityModal from '../components/modals/QuantityModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
 import ReApprovalBanner from '../components/invoices/ReApprovalBanner';
+// Module 2 — Collections integration
+import LogPaymentModal from '../components/modals/LogPaymentModal';
+import LogCollectionActionModal from '../components/modals/LogCollectionActionModal';
+import { usePrompt } from '../components/v2/PromptDialog';
 import { logActivity } from '../utils/logger';
 import { isFinanceController, resolveReturnPage } from '../utils/roles';
 import { can } from '../utils/permissions';
@@ -47,6 +51,11 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
     // UI State
     const [isLoading, setIsLoading] = useState(true);
     const [notification, setNotification] = useState(null);
+    // Module 2 — Collections modals + payment ledger
+    const [payments, setPayments] = useState([]);
+    const [paymentsLoading, setPaymentsLoading] = useState(false);
+    const [openLogPayment, setOpenLogPayment]   = useState(false);
+    const [openLogAction, setOpenLogAction]     = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [addingItem, setAddingItem] = useState(null);
     const [removingItem, setRemovingItem] = useState(null);
@@ -199,6 +208,60 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
 
         fetchInvoice();
     }, [invoiceId, customers]);
+
+    // Module 2 — Load payment ledger for this invoice. Re-runs whenever the
+    // payments:updated socket fires elsewhere (LogPaymentModal, Collections
+    // Workbench) so the ledger stays in sync without manual refresh.
+    const fetchPayments = useCallback(async () => {
+        if (!invoiceId) return;
+        setPaymentsLoading(true);
+        try {
+            const res = await api.get('/collections/payments', { params: { invoiceId, includeReversed: 'true' } });
+            if (res?.success) setPayments(res.data || []);
+        } catch (_e) {
+            // Quietly leave payments empty — the page still works without ledger
+        } finally {
+            setPaymentsLoading(false);
+        }
+    }, [invoiceId]);
+
+    useEffect(() => { fetchPayments(); }, [fetchPayments]);
+
+    // Module 2 — Reverse a logged payment. Officer can do it within 24h
+    // (server enforces); head can do it any time. Asks for a reason via
+    // the v2 prompt dialog — required by the backend.
+    const { askText } = usePrompt();
+    const handleReversePayment = async (payment) => {
+        const reason = await askText({
+            title:        `Reverse receipt ${payment.receiptNumber || `#${payment.id}`}?`,
+            description:  'This marks the payment as REVERSED, restores the invoice balance, and is permanent. A reason is required for the audit trail.',
+            label:        'Reason for reversal',
+            placeholder:  'e.g. duplicate entry, cheque bounced, wrong invoice',
+            multiline:    true,
+            maxLength:    500,
+            confirmLabel: 'Reverse payment',
+            confirmTone:  'danger',
+            cancelLabel:  'Keep payment'
+        });
+        if (reason === null) return; // user cancelled
+        try {
+            const res = await api.post(`/collections/payments/${payment.id}/reverse`, { reason: String(reason).trim() });
+            if (res?.success) {
+                setNotification({ type: 'success', message: `Receipt ${payment.receiptNumber || `#${payment.id}`} reversed.` });
+                fetchPayments();
+            } else {
+                setNotification({ type: 'error', message: res?.error || 'Could not reverse payment.' });
+            }
+        } catch (err) {
+            const status = err?.response?.status;
+            const msg    = err?.response?.data?.error || err?.message || 'Unknown error';
+            // 422 is the 24h-window block — surface the server's clear message verbatim
+            setNotification({
+                type: 'error',
+                message: status === 422 ? msg : `Failed to reverse${status ? ` (${status})` : ''}: ${msg}`
+            });
+        }
+    };
 
     // Load available signatures
     useEffect(() => {
@@ -414,6 +477,10 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                 taxBreakdown: taxes,
                 currency: currency,
                 exchangeRate: fxRateGhsPerUsd || invoice?.exchangeRate,
+                // Module 1 — include DUE_DATE if user edited it in the
+                // metadata strip. Backend mapping converts the string to a
+                // JS Date for the DATE column.
+                ...(invoice?.dueDate ? { dueDate: invoice.dueDate } : {}),
                 // Optimistic-concurrency token — backend returns 409 if a
                 // different user changed this invoice since we loaded it.
                 ...(invoice?.rowVersion !== undefined ? { rowVersion: invoice.rowVersion } : {})
@@ -559,6 +626,58 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-semibold text-gray-700">Invoice Details for: <span className="text-blue-600">{selectedCustomer?.name}</span></h2>
                         </div>
+
+                        {/* Module 1 — Invoice metadata strip (date / due date /
+                            payment terms). DUE_DATE is editable while the
+                            invoice is still in pricing-pending; once it
+                            moves past that into Approved or later, the field
+                            renders read-only because the customer-facing
+                            snapshot is locked. Mirrors how taxBreakdown is
+                            handled by the FINALIZED_STATUSES list. */}
+                        {(() => {
+                            const FINALIZED = new Set(['Approved','Sent','Customer Accepted','Customer Rejected','Paid','Partially Paid','Cancelled','Closed']);
+                            const isLocked = FINALIZED.has(invoice?.status);
+                            const dueDateValue = invoice?.dueDate
+                                ? new Date(invoice.dueDate).toISOString().slice(0, 10)
+                                : '';
+                            const invoiceDateDisplay = invoice?.invoiceDate || invoice?.date || '—';
+                            return (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 p-3 bg-gray-50 rounded-md border border-gray-200">
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Invoice Date</label>
+                                        <div className="mt-1 text-sm font-medium text-gray-800">
+                                            {invoiceDateDisplay && invoiceDateDisplay !== '—'
+                                                ? new Date(invoiceDateDisplay).toLocaleDateString()
+                                                : '—'}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Payment Terms</label>
+                                        <div className="mt-1 text-sm font-medium text-gray-800">
+                                            {invoice?.paymentTerms || 'Net 30'}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
+                                            Due Date {isLocked ? '(locked)' : ''}
+                                        </label>
+                                        {isLocked ? (
+                                            <div className="mt-1 text-sm font-medium text-gray-800">
+                                                {dueDateValue ? new Date(dueDateValue).toLocaleDateString() : '—'}
+                                            </div>
+                                        ) : (
+                                            <input
+                                                type="date"
+                                                value={dueDateValue}
+                                                onChange={(e) => setInvoice(prev => ({ ...prev, dueDate: e.target.value }))}
+                                                className="mt-1 w-full text-sm p-1 border border-gray-300 rounded"
+                                                title="Editable while invoice is still in pricing/approval; locks after sent to customer"
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })()}
 
                         {/* Line Items Table */}
                         <div className="h-96 overflow-y-auto border rounded-md mb-4">
@@ -735,6 +854,165 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                             </div>
                         </div>
 
+                        {/* Module 2 — Payments ledger + Log Payment button.
+                            Renders for every invoice. The confirmed payments
+                            sum + WHT total feed the running balance shown on
+                            the right; reversed payments are visually struck-
+                            through. Log Payment button is gated by the new
+                            payment.log permission so officers without it
+                            (e.g. sales) see the ledger but can't write to it. */}
+                        <div className="mt-6 bg-white border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-lg font-medium text-gray-800">
+                                    Payments &amp; Collections
+                                </h3>
+                                <div className="flex gap-2">
+                                    {can(currentUser, 'collections.action.log') && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setOpenLogAction(true)}
+                                            leftIcon={<Icon id="phone" />}
+                                        >
+                                            Log Follow-up
+                                        </Button>
+                                    )}
+                                    {(() => {
+                                        // Hide Log Payment when invoice is fully paid (balance ≤ 0)
+                                        // or status isn't payment-eligible. Mirrors the server gate
+                                        // so users don't see a button that would 422 on submit.
+                                        const eligibleStatuses = new Set([
+                                            'Awaiting Acceptance', 'Customer Accepted', 'Partially Paid', 'Paid'
+                                        ]);
+                                        const confirmedPayments = payments.filter(p => !p.status || p.status === 'CONFIRMED');
+                                        const paidSum   = confirmedPayments.reduce((s, p) => s + Number(p.amount || 0) + Number(p.whtTotal || 0), 0);
+                                        const balance   = Math.max(0, Number(invoice?.total || 0) - paidSum);
+                                        const canLogNow = can(currentUser, 'payment.log')
+                                            && eligibleStatuses.has(invoice?.status)
+                                            && balance > 0.01;
+                                        if (!canLogNow) return null;
+                                        return (
+                                            <Button
+                                                variant="primary"
+                                                size="sm"
+                                                onClick={() => setOpenLogPayment(true)}
+                                                leftIcon={<Icon id="plus" />}
+                                            >
+                                                Log Payment
+                                            </Button>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+
+                            {(() => {
+                                const confirmed = payments.filter(p => !p.status || p.status === 'CONFIRMED');
+                                const paidSum   = confirmed.reduce((s, p) => s + Number(p.amount || 0), 0);
+                                const whtSum    = confirmed.reduce((s, p) => s + Number(p.whtTotal || 0), 0);
+                                const effective = paidSum + whtSum;
+                                const total     = Number(invoice?.total || 0);
+                                const balance   = Math.max(0, total - effective);
+                                const dueDate   = invoice?.dueDate ? new Date(invoice.dueDate) : null;
+                                const overdue   = balance > 0 && dueDate && !isNaN(dueDate.getTime())
+                                    ? Math.floor((Date.now() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
+                                    : 0;
+
+                                return (
+                                    <>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                                            <div className="p-2 bg-gray-50 rounded">
+                                                <div className="text-xs text-gray-500 uppercase">Invoice Total</div>
+                                                <div className="text-sm font-semibold">{formatAmount(total)}</div>
+                                            </div>
+                                            <div className="p-2 bg-emerald-50 rounded">
+                                                <div className="text-xs text-emerald-700 uppercase">Cash Received</div>
+                                                <div className="text-sm font-semibold text-emerald-800">{formatAmount(paidSum)}</div>
+                                            </div>
+                                            <div className="p-2 bg-blue-50 rounded">
+                                                <div className="text-xs text-blue-700 uppercase">WHT Captured</div>
+                                                <div className="text-sm font-semibold text-blue-800">{formatAmount(whtSum)}</div>
+                                            </div>
+                                            <div className={`p-2 rounded ${balance > 0 ? (overdue > 0 ? 'bg-red-50' : 'bg-amber-50') : 'bg-emerald-50'}`}>
+                                                <div className={`text-xs uppercase ${balance > 0 ? (overdue > 0 ? 'text-red-700' : 'text-amber-700') : 'text-emerald-700'}`}>Outstanding</div>
+                                                <div className={`text-sm font-semibold ${balance > 0 ? (overdue > 0 ? 'text-red-800' : 'text-amber-800') : 'text-emerald-800'}`}>
+                                                    {formatAmount(balance)}
+                                                    {overdue > 0 && <span className="ml-1 text-xs">({overdue}d late)</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {paymentsLoading ? (
+                                            <div className="text-center py-4 text-sm text-gray-500">Loading payments…</div>
+                                        ) : payments.length === 0 ? (
+                                            <div className="text-center py-4 text-sm text-gray-500 italic">
+                                                No payments logged yet for this invoice.
+                                            </div>
+                                        ) : (
+                                            <div className="overflow-x-auto">
+                                                <table className="min-w-full text-sm">
+                                                    <thead className="bg-gray-50 text-xs text-gray-600 uppercase">
+                                                        <tr>
+                                                            <th className="px-2 py-1 text-left">Receipt</th>
+                                                            <th className="px-2 py-1 text-left">Date</th>
+                                                            <th className="px-2 py-1 text-right">Amount</th>
+                                                            <th className="px-2 py-1 text-right">WHT</th>
+                                                            <th className="px-2 py-1 text-left">Method</th>
+                                                            <th className="px-2 py-1 text-left">By</th>
+                                                            <th className="px-2 py-1 text-left">Status</th>
+                                                            <th className="px-2 py-1 text-right"></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100">
+                                                        {payments.map(p => {
+                                                            const isReversed = p.status === 'REVERSED';
+                                                            return (
+                                                                <tr key={p.id} className={isReversed ? 'opacity-60' : ''}>
+                                                                    <td className={`px-2 py-1 font-mono text-xs ${isReversed ? 'line-through' : ''}`}>{p.receiptNumber || `PAY-${p.id}`}</td>
+                                                                    <td className={`px-2 py-1 ${isReversed ? 'line-through' : ''}`}>{p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '—'}</td>
+                                                                    <td className={`px-2 py-1 text-right font-mono ${isReversed ? 'line-through' : ''}`}>{formatAmount(p.amount)}</td>
+                                                                    <td className={`px-2 py-1 text-right font-mono text-gray-600 ${isReversed ? 'line-through' : ''}`}>{p.whtTotal > 0 ? formatAmount(p.whtTotal) : '—'}</td>
+                                                                    <td className={`px-2 py-1 text-gray-700 ${isReversed ? 'line-through' : ''}`}>{p.paymentMethod}</td>
+                                                                    <td className="px-2 py-1 text-gray-500">{(p.loggedBy || '').split('@')[0]}</td>
+                                                                    <td className="px-2 py-1">
+                                                                        <span
+                                                                            className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${
+                                                                                isReversed ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                                                                            }`}
+                                                                            title={isReversed ? `Reversed by ${p.reversedBy || ''}: ${p.reversalReason || ''}` : ''}
+                                                                        >
+                                                                            {p.status || 'Confirmed'}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-2 py-1 text-right">
+                                                                        {/* Module 2 — Reverse action (gated by
+                                                                            permission and confirmed status). Officer's
+                                                                            24h window is enforced server-side; UI just
+                                                                            shows the button universally so officers don't
+                                                                            have to know the rule (server's 422 message
+                                                                            explains if blocked). */}
+                                                                        {!isReversed && can(currentUser, 'payment.reverse') && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleReversePayment(p)}
+                                                                                className="text-xs text-red-600 hover:underline"
+                                                                                title="Reverse this payment"
+                                                                            >
+                                                                                Reverse
+                                                                            </button>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                            })()}
+                        </div>
+
                         {/* Signature Selection for Approval */}
                         <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                             <h3 className="text-lg font-medium text-blue-800 mb-3">Digital Signature for Approval</h3>
@@ -835,6 +1113,22 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                         </div>
                     </div>
                 </div>
+
+                {/* Module 2 — Collections modals mounted at root of the
+                    fragment so they overlay the whole page when open. */}
+                <LogPaymentModal
+                    open={openLogPayment}
+                    onClose={() => setOpenLogPayment(false)}
+                    invoice={invoice}
+                    onLogged={() => { setOpenLogPayment(false); fetchPayments(); }}
+                />
+                <LogCollectionActionModal
+                    open={openLogAction}
+                    onClose={() => setOpenLogAction(false)}
+                    invoiceId={invoice?.id}
+                    invoiceNumber={invoice?.invoiceNumber}
+                    onLogged={() => { setOpenLogAction(false); }}
+                />
         </>
     );
 };

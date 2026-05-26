@@ -11,6 +11,8 @@ import { useActivityLog } from '../hooks/useActivityLog';
 import { SortableHeader, useSortable } from '../components/v2';
 import { getInvoiceDate } from '../utils/helpers';
 import { usePrompt } from '../components/v2/PromptDialog';
+// Module 4 — controlled lost-deal / won-deal vocabulary
+import RejectWithReasonModal from '../components/modals/RejectWithReasonModal';
 
 const MyInvoices = ({ navigateTo, userId, pageContext }) => {
     const { log } = useActivityLog();
@@ -19,6 +21,10 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
     // Toast for transient errors — replaces the previous browser alert()s
     // which broke the Fluent 2 visual language and blocked the page.
     const [notification, setNotification] = useState(null);
+    // Module 4 — invoice being "Customer Rejected" via the controlled
+    // lost-deal modal. Holds the invoice object so the modal's onSubmit
+    // can run the existing two-phase reject + inventory-restore flow.
+    const [rejectingInvoice, setRejectingInvoice] = useState(null);
 
     // M7 — read filter state from URL on mount so browser reload / shared link keeps it
     const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -120,11 +126,26 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
     // Project numeric / date columns so the sort hook picks the right
     // comparator (locale string for ID + customer + status, numeric for
     // amount, parsed-date for date).
-    const sortableInvoices = useMemo(() => filteredInvoices.map(inv => ({
-        ...inv,
-        _amount: Number(inv.total) || 0,
-        _date:   getInvoiceDate(inv).getTime() || 0
-    })), [filteredInvoices]);
+    // Module 1 — `_due` + `_daysOverdue` added so the new Due column
+    // sorts numerically and overdue badge can render from a stable per-row
+    // value computed once here instead of every render.
+    const today = useMemo(() => {
+        const d = new Date(); d.setHours(0, 0, 0, 0); return d;
+    }, []);
+    const sortableInvoices = useMemo(() => filteredInvoices.map(inv => {
+        const due = inv.dueDate ? new Date(inv.dueDate) : null;
+        const dueValid = due && !isNaN(due.getTime());
+        const daysOverdue = dueValid && Number(inv.balanceDue || inv.total || 0) > 0
+            ? Math.floor((today - due) / (1000 * 60 * 60 * 24))
+            : 0;
+        return {
+            ...inv,
+            _amount: Number(inv.total) || 0,
+            _date:   getInvoiceDate(inv).getTime() || 0,
+            _due:    dueValid ? due.getTime() : 0,
+            _daysOverdue: daysOverdue
+        };
+    }), [filteredInvoices, today]);
     const { sortKey, sortDir, toggle: toggleSort, sortedRows: sortedInvoices } =
         useSortable(sortableInvoices, '_date', 'desc');
 
@@ -309,20 +330,18 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
         } catch (error) { console.error('Error marking accepted:', error); }
     };
 
-    const handleMarkRejected = async (invoice) => {
-        const reason = await askText({
-            title:        `Reject ${invoice.approvedInvoiceId || invoice.id}`,
-            description:  'The salesperson will see this exact reason on their My Invoices view, in the activity history, and on any re-revised draft. Inventory will be restored.',
-            label:        'Reason for rejection',
-            placeholder:  'e.g. price mismatch on line 2…',
-            multiline:    true,
-            required:     true,
-            requiredMessage: 'A reason is required so the salesperson knows what to fix.',
-            maxLength:    500,
-            confirmLabel: 'Reject invoice',
-            confirmTone:  'danger'
-        });
-        if (reason === null) return;
+    // Module 4 — open the controlled-vocabulary lost-deal modal. The
+    // modal's onSubmit calls performMarkRejected below. We keep the
+    // existing two-phase reject + inventory restore logic intact —
+    // only the reason capture moved from askText to the modal.
+    const handleMarkRejected = (invoice) => {
+        setRejectingInvoice(invoice);
+    };
+
+    const performMarkRejected = async ({ reasonCode, reasonLabel, lostToCompetitor, notes }) => {
+        const invoice = rejectingInvoice;
+        if (!invoice) return;
+        const reason = notes || reasonLabel || 'Customer rejected';
 
         // Two-phase: status FIRST, inventory restore as best-effort.
         // The earlier code wrapped both in a single try/catch, so a single
@@ -335,7 +354,10 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
             await api.put(`/invoices/${invoice.id}`, {
                 status: 'Customer Rejected',
                 customerActionAt: new Date(),
-                rejectionReason: reason
+                rejectionReason: reason,
+                // Module 4 — structured columns alongside the free-text reason.
+                rejectionReasonCode: reasonCode || null,
+                lostToCompetitor:    lostToCompetitor || null
             });
         } catch (err) {
             console.error('Reject invoice — status update failed:', err);
@@ -345,8 +367,9 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
                 confirmLabel: 'OK',
                 cancelLabel:  ''
             });
-            return;
+            throw err; // keep modal open for retry
         }
+        setRejectingInvoice(null);
 
         const itemsToRestore = (invoice.lineItems || invoice.items || []).filter(it =>
             it && it.id &&
@@ -452,6 +475,17 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
             {previewData && (
                 <PreviewModal open={!!previewData} onClose={() => setPreviewData(null)} payload={previewData} mode="invoice" isDistribution={true} onEmail={handleSendEmail} onDownload={handleDownloadAction} />
             )}
+            <RejectWithReasonModal
+                open={!!rejectingInvoice}
+                onClose={() => setRejectingInvoice(null)}
+                onSubmit={performMarkRejected}
+                category="LOST_DEAL"
+                title={rejectingInvoice ? `Mark ${rejectingInvoice.approvedInvoiceId || rejectingInvoice.id} as rejected` : 'Mark rejected'}
+                description="The salesperson will see this on their queue. Inventory will be restored after the rejection persists."
+                confirmLabel="Mark rejected"
+                confirmTone="danger"
+                requireReason
+            />
             <PageHeader
                 title="My Invoices"
                 actions={
@@ -492,17 +526,32 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
                                     <th className="p-3 text-left"><SortableHeader  label="Invoice ID" sortKey="id"           current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
                                     <th className="p-3 text-left"><SortableHeader  label="Customer"   sortKey="customerName" current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
                                     <th className="p-3 text-left"><SortableHeader  label="Date"       sortKey="_date"        current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
+                                    <th className="p-3 text-left"><SortableHeader  label="Due"        sortKey="_due"         current={sortKey} dir={sortDir} onToggle={toggleSort} /></th>
                                     <th className="p-3 text-right"><SortableHeader label="Amount"     sortKey="_amount"      current={sortKey} dir={sortDir} onToggle={toggleSort} align="right" /></th>
                                     <th className="p-3 text-center"><SortableHeader label="Status"    sortKey="status"       current={sortKey} dir={sortDir} onToggle={toggleSort} align="center" /></th>
                                     <th className="p-3 font-semibold text-[11px] text-n-600 uppercase tracking-wider text-center">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {sortedInvoices.length === 0 ? (<tr><td colSpan="6" className="p-8 text-center text-gray-500">No invoices found in this category.</td></tr>) : (sortedInvoices.map(inv => (
+                                {sortedInvoices.length === 0 ? (<tr><td colSpan="7" className="p-8 text-center text-gray-500">No invoices found in this category.</td></tr>) : (sortedInvoices.map(inv => (
                                     <tr key={inv.id} className="border-b hover:bg-gray-50">
                                         <td className="p-3 font-medium">{inv.approvedInvoiceId || inv.id}</td>
                                         <td className="p-3">{inv.customerName}</td>
                                         <td className="p-3">{inv.date}</td>
+                                        <td className="p-3">
+                                            {inv.dueDate ? (
+                                                <div className="flex flex-col">
+                                                    <span className="text-gray-700">{new Date(inv.dueDate).toLocaleDateString()}</span>
+                                                    {inv._daysOverdue > 0 && (
+                                                        <span className="text-[10.5px] font-semibold text-red-600 uppercase tracking-wide">
+                                                            {inv._daysOverdue} day{inv._daysOverdue === 1 ? '' : 's'} overdue
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <span className="text-gray-400 italic">—</span>
+                                            )}
+                                        </td>
                                         <td className="p-3 text-right">{formatListAmount(inv.total, inv.currency)}</td>
                                         <td className="p-3 text-center">
                                             <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(inv.status)}`}>{inv.status}</span>

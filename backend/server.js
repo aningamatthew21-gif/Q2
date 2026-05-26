@@ -9,6 +9,12 @@ const DOMPurify = require('isomorphic-dompurify');
 const crypto = require('crypto');
 require('dotenv').config();
 
+// ISO 27001 A.5.17 — boot-time secrets check. Must run immediately AFTER
+// dotenv.config() loads .env and BEFORE anything else touches secrets.
+// In production this aborts boot if any critical check fails; in dev
+// it logs warnings and continues. Pure read-only check on process.env.
+require('./utils/secretsCheck').enforce();
+
 const http = require('http');
 const { Server } = require('socket.io');
 const { initPool } = require('./db');
@@ -33,6 +39,18 @@ const usersRoutes = require('./routes/users');
 const rfqRoutes = require('./routes/rfqs');
 const procurementSettingsRoutes = require('./routes/procurementSettings');
 const notificationRoutes = require('./routes/notifications');
+// Module 2 — Collections / Payment System
+const collectionsRoutes = require('./routes/collections');
+const whtConfigRoutes   = require('./routes/whtConfig');
+// Module 3 — Procurement Goods Receipts
+const goodsReceiptsRoutes   = require('./routes/goodsReceipts');
+const vendorScorecardsRoutes = require('./routes/vendorScorecards');
+// Module 4 — Sales win/loss + segmentation (controlled vocabulary)
+const reasonsRoutes         = require('./routes/reasons');
+// Module 5 — Reports layer (Finance / Sales / Procurement)
+const reportsFinanceRoutes     = require('./routes/reports/finance');
+const reportsSalesRoutes       = require('./routes/reports/sales');
+const reportsProcurementRoutes = require('./routes/reports/procurement');
 const { auditMiddleware } = require('./middleware/auditMiddleware');
 
 // Global tax settings (can be updated via API)
@@ -138,6 +156,18 @@ app.use('/api/rfqs', rfqRoutes);
 app.use('/api/procurement-settings', procurementSettingsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/notifications', notificationRoutes);
+// Module 2 — Collections / Payment System
+app.use('/api/collections', collectionsRoutes);
+app.use('/api/wht',         whtConfigRoutes);
+// Module 3 — Procurement Goods Receipts
+app.use('/api/goods-receipts',    goodsReceiptsRoutes);
+app.use('/api/vendor-scorecards', vendorScorecardsRoutes);
+// Module 4 — Sales win/loss + segmentation
+app.use('/api/reasons',           reasonsRoutes);
+// Module 5 — Reports layer
+app.use('/api/reports/finance',     reportsFinanceRoutes);
+app.use('/api/reports/sales',       reportsSalesRoutes);
+app.use('/api/reports/procurement', reportsProcurementRoutes);
 
 // NOTE: auditMiddleware AND the rate limiters were previously declared HERE,
 // AFTER the route mounts. Because Express routers terminate their requests
