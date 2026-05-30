@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import GlassModal from '../common/GlassModal';
 import Button from '../common/Button';
 import FileDropzone from '../v2/FileDropzone';
+import Label from '../v2/Label';
+import RequiredMark from '../v2/RequiredMark';
 import { Paperclip, Download, FileText } from 'lucide-react';
 import api from '../../api';
 
@@ -253,7 +255,7 @@ const LogVendorResponseModal = ({ rfq, vendor, onSave, onCancel, defaultPrId }) 
                             <tr>
                                 <th className="p-2 text-left text-xs text-ink-muted font-medium">Item</th>
                                 <th className="p-2 text-center text-xs text-ink-muted font-medium">Qty</th>
-                                <th className="p-2 text-left text-xs text-ink-muted font-medium">Unit Cost ({rfq.currency || 'GHS'}) *</th>
+                                <th className="p-2 text-left text-xs text-ink-muted font-medium">Unit Cost ({rfq.currency || 'GHS'})<RequiredMark /></th>
                                 <th className="p-2 text-left text-xs text-ink-muted font-medium">Freight</th>
                                 <th className="p-2 text-left text-xs text-ink-muted font-medium">Lead (days)</th>
                                 <th className="p-2 text-right text-xs text-ink-muted font-medium">Line Total</th>
@@ -396,10 +398,9 @@ const LogVendorResponseModal = ({ rfq, vendor, onSave, onCancel, defaultPrId }) 
                 <div>
                     <div className="flex items-center gap-2 mb-2">
                         <Paperclip className="w-3.5 h-3.5 text-n-500" />
-                        <label className="text-[12px] font-semibold text-n-700">
+                        <Label className="text-[12px] font-semibold text-n-700" required={!isEditMode}>
                             {isEditMode ? 'Replace attachments' : 'Vendor attachments'}
-                            {!isEditMode && <span className="text-err"> *</span>}
-                        </label>
+                        </Label>
                     </div>
                     <FileDropzone
                         value={attachments}

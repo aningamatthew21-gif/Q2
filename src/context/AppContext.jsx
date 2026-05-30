@@ -51,6 +51,11 @@ import RFQBuilder from '../pages/RFQBuilder';
 import RFQDetail from '../pages/RFQDetail';
 import ProcurementSettings from '../pages/ProcurementSettings';
 import UserManagement from '../pages/UserManagement';
+// EH — admin Error Monitor (real-time observability of QA_ERROR_LOG)
+import ErrorMonitor from '../pages/ErrorMonitor';
+import NumberingSettings from '../pages/NumberingSettings';
+// EH — page-level boundary so a render crash in one view doesn't whitescreen the rest of the app
+import ErrorBoundary from '../components/v2/ErrorBoundary';
 // Module 5 — Reports layer (hub + placeholder for all 24 reports)
 import ReportsHub from '../pages/reports/ReportsHub';
 import ReportPlaceholder from '../pages/reports/ReportPlaceholder';
@@ -185,7 +190,13 @@ const VALID_PAGES = new Set([
     'reportSalesPipeline', 'reportQuoteConversion', 'reportRevenueVsTarget', 'reportSalesLeaderboard',
     'reportQuoteAging', 'reportWinLoss', 'reportTopCustomers', 'reportTopProducts',
     'reportPrBacklog', 'reportRfqCycleTime', 'reportRfqsAttention', 'reportSpendByVendor',
-    'reportSpendByCategory', 'reportOverrideAudit', 'reportLeadTimeAccuracy', 'reportPrCancellation'
+    'reportSpendByCategory', 'reportOverrideAudit', 'reportLeadTimeAccuracy', 'reportPrCancellation',
+    // EH — admin Error Monitor (gated by system.errors.read; admin-only by default)
+    'errorMonitor',
+    // Document numbering settings (admin + finance_head; gated by
+    // system.number_sequences.edit). Configures the standardized
+    // {PREFIX}-{DOC}-{PERIOD}-{NNNNN} format for INV/PR/RFQ/GR/MEMO.
+    'numberingSettings'
 ]);
 
 // Read the page from the current URL ?page= param (if valid)
@@ -542,6 +553,10 @@ export const AppProvider = ({ children }) => {
                 return <ProcurementSettings {...commonProps} />;
             case 'userManagement':
                 return <UserManagement {...commonProps} />;
+            case 'errorMonitor':
+                return <ErrorMonitor {...commonProps} />;
+            case 'numberingSettings':
+                return <NumberingSettings {...commonProps} />;
             default:
                 if (appUser) {
                     const landing = roleToLandingPage(appUser.role);
@@ -564,7 +579,14 @@ export const AppProvider = ({ children }) => {
                 logged in it just renders children with empty state, so
                 there's no harm wrapping the chromeless (login) tree too. */}
             <NotificationProvider>
-                {isChromeless ? renderPage() : <AppShell>{renderPage()}</AppShell>}
+                {/* EH — render every page inside a per-page ErrorBoundary so a
+                    render-time crash in one view shows a recoverable error
+                    screen instead of white-screening the whole SPA. The
+                    boundary's `key={page}` resets the error state when the
+                    user navigates to a different page. */}
+                {isChromeless
+                    ? <ErrorBoundary scope="page" key={page}>{renderPage()}</ErrorBoundary>
+                    : <AppShell><ErrorBoundary scope="page" key={page}>{renderPage()}</ErrorBoundary></AppShell>}
                 <GlobalStaleCheck />
             </NotificationProvider>
         </AppContext.Provider>

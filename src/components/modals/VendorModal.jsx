@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import GlassModal from '../common/GlassModal';
 import Button from '../common/Button';
+import Label from '../v2/Label';
 
 const INPUT_CLASS = 'mt-1 w-full p-2 border border-line rounded-card focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface';
 const LABEL_CLASS = 'text-sm font-medium text-ink-muted';
@@ -60,7 +61,7 @@ const VendorModal = ({ vendor, onSave, onClose }) => {
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
-                    <label className={LABEL_CLASS}>Vendor Name *</label>
+                    <Label className={LABEL_CLASS} required>Vendor Name</Label>
                     <input type="text" name="name" value={formData.name} onChange={handleChange} className={INPUT_CLASS} />
                 </div>
                 <div>

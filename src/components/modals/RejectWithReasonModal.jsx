@@ -37,6 +37,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import api from '../../api';
 import Dialog from '../v2/Dialog';
 import Button from '../common/Button';
+import Label from '../v2/Label';
 
 const INPUT_CLASS = 'w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none';
 
@@ -143,9 +144,9 @@ const RejectWithReasonModal = ({
                 )}
 
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Reason {requireReason && <span className="text-red-500">*</span>}
-                    </label>
+                    <Label className="block text-xs font-medium text-gray-600 mb-1" required={requireReason}>
+                        Reason
+                    </Label>
                     {loading ? (
                         <div className="text-xs text-gray-500 italic p-2">Loading reasons…</div>
                     ) : reasons.length === 0 ? (
@@ -187,12 +188,12 @@ const RejectWithReasonModal = ({
                 )}
 
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Notes {requireNotes && <span className="text-red-500">*</span>}
+                    <Label className="block text-xs font-medium text-gray-600 mb-1" required={requireNotes}>
+                        Notes
                         <span className="font-normal text-gray-400 ml-1">
                             (visible to the salesperson on their queue)
                         </span>
-                    </label>
+                    </Label>
                     <textarea
                         rows={3}
                         value={notes}

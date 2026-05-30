@@ -1,0 +1,1128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MIDSA Quote App — Roles, Permissions & Separation of Duties</title>
+<style>
+  /* ────────────────────────────────────────────────────────────────
+     Printable role-and-permission matrix. Open in any browser, then
+     Ctrl/Cmd+P → "Save as PDF" to produce the review artefact.
+     ──────────────────────────────────────────────────────────────── */
+  :root {
+    --ink: #1a1a1a;
+    --muted: #6b7280;
+    --rule: #e5e7eb;
+    --ok: #047857;
+    --no: #b91c1c;
+    --na: #9ca3af;
+    --accent: #1d4ed8;
+    --bg-tint: #f9fafb;
+    --bg-warn: #fef3c7;
+    --bg-info: #dbeafe;
+    --bg-iso: #ede9fe;
+  }
+
+  @page { size: A4; margin: 14mm 12mm; }
+  @page big { size: A3 landscape; margin: 10mm; }
+
+  html, body {
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color: var(--ink);
+    font-size: 10.5pt;
+    line-height: 1.45;
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+  body { padding: 18mm 14mm 24mm 14mm; max-width: 1100px; margin: 0 auto; }
+
+  h1 {
+    font-size: 22pt; margin: 0 0 4pt 0;
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 6pt;
+  }
+  h2 {
+    font-size: 15pt; margin: 22pt 0 8pt 0;
+    padding-bottom: 3pt;
+    border-bottom: 1.5px solid var(--rule);
+    color: var(--accent);
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 12pt; margin: 14pt 0 6pt 0; color: var(--ink);
+    page-break-after: avoid;
+  }
+  h4 { font-size: 10.5pt; margin: 10pt 0 4pt 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
+
+  p { margin: 4pt 0 8pt 0; }
+
+  .meta-line { color: var(--muted); font-size: 9.5pt; margin-top: 0; }
+  .meta-line strong { color: var(--ink); }
+
+  /* Callout boxes */
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: var(--bg-info);
+    padding: 8pt 12pt;
+    margin: 10pt 0;
+    border-radius: 2pt;
+    font-size: 10pt;
+  }
+  .callout.warn { border-color: #b45309; background: var(--bg-warn); }
+  .callout.iso  { border-color: #6d28d9; background: var(--bg-iso); }
+
+  .callout p:first-child { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong { color: var(--ink); }
+
+  /* Tables */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 8pt 0 12pt 0;
+    font-size: 9.5pt;
+  }
+  th, td {
+    border: 1px solid var(--rule);
+    padding: 4pt 6pt;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--bg-tint);
+    font-weight: 600;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+  }
+  tbody tr:nth-child(odd) { background: #fafafa; }
+
+  /* Matrix table — narrow role columns */
+  .matrix { font-size: 9pt; }
+  .matrix th.action-col, .matrix td.action-col {
+    width: 38%;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 8.5pt;
+  }
+  .matrix th.action-col { font-family: inherit; }
+  .matrix th.role-col, .matrix td.role-col {
+    width: 7%;
+    text-align: center;
+    font-weight: 600;
+  }
+  .matrix th.role-col {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    line-height: 1.2;
+    padding: 8pt 2pt;
+    height: 70pt;
+  }
+  .matrix td.role-col.ok  { color: var(--ok); }
+  .matrix td.role-col.no  { color: var(--na); }
+  .matrix td.role-col.ok::before { content: '✓'; font-size: 11pt; }
+  .matrix td.role-col.no::before { content: '·'; font-size: 12pt; color: var(--na); }
+
+  .matrix tr.category-row td {
+    background: #eef2ff;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding-top: 6pt;
+  }
+
+  /* Per-role detail boxes */
+  .role-card {
+    border: 1.5px solid var(--rule);
+    border-radius: 6px;
+    padding: 10pt 14pt;
+    margin: 10pt 0;
+    page-break-inside: avoid;
+  }
+  .role-card.admin   { border-left: 6px solid #7c3aed; }
+  .role-card.finance { border-left: 6px solid #059669; }
+  .role-card.sales   { border-left: 6px solid #2563eb; }
+  .role-card.proc    { border-left: 6px solid #ea580c; }
+  .role-card.customer{ border-left: 6px solid #6b7280; }
+
+  .role-card h3 { margin-top: 0; display: flex; justify-content: space-between; align-items: baseline; }
+  .role-card h3 .tier-chip {
+    font-size: 8pt;
+    background: var(--ink);
+    color: white;
+    padding: 2pt 6pt;
+    border-radius: 999pt;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  .role-card .who { color: var(--muted); font-size: 10pt; margin: 0 0 8pt 0; }
+
+  .perm-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4pt 14pt;
+    margin: 6pt 0;
+    font-size: 9.5pt;
+  }
+  .perm-grid .group-title {
+    grid-column: 1 / -1;
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 6pt;
+    padding-top: 4pt;
+    border-top: 1px dashed var(--rule);
+  }
+  .perm-grid li { margin: 2pt 0; }
+  .perm-grid code {
+    font-family: 'Consolas','Courier New',monospace;
+    font-size: 8.5pt;
+    color: var(--accent);
+    background: var(--bg-tint);
+    padding: 0 3pt;
+    border-radius: 2pt;
+  }
+  .perm-grid ul { list-style: none; padding: 0; margin: 0; }
+
+  .cant {
+    background: #fef2f2;
+    border-left: 3px solid var(--no);
+    padding: 6pt 10pt;
+    margin: 8pt 0 0 0;
+    font-size: 9.5pt;
+  }
+  .cant strong { color: var(--no); }
+
+  /* SoD rules */
+  .sod-rule {
+    border: 1.5px solid #c7d2fe;
+    border-radius: 6px;
+    padding: 10pt 14pt;
+    margin: 10pt 0;
+    background: #f5f7ff;
+    page-break-inside: avoid;
+  }
+  .sod-rule h3 { margin-top: 0; color: #4338ca; }
+  .sod-rule .rule-formula {
+    font-family: 'Consolas','Courier New',monospace;
+    background: white;
+    border: 1px solid var(--rule);
+    padding: 6pt 8pt;
+    border-radius: 3pt;
+    font-size: 9.5pt;
+    margin: 6pt 0;
+  }
+  .sod-rule .bypass {
+    background: var(--bg-warn);
+    border-left: 3px solid #b45309;
+    padding: 6pt 10pt;
+    margin: 6pt 0 0 0;
+    font-size: 9.5pt;
+  }
+
+  .legend {
+    display: flex;
+    gap: 14pt;
+    margin: 4pt 0 8pt 0;
+    font-size: 9pt;
+    color: var(--muted);
+  }
+  .legend span::before { font-size: 11pt; margin-right: 3pt; }
+  .legend .l-ok::before { content: '✓'; color: var(--ok); }
+  .legend .l-no::before { content: '·'; color: var(--na); }
+
+  /* TOC */
+  .toc {
+    background: var(--bg-tint);
+    border: 1px solid var(--rule);
+    padding: 10pt 16pt;
+    border-radius: 4pt;
+    margin: 10pt 0 20pt 0;
+    page-break-inside: avoid;
+  }
+  .toc h4 { margin-top: 0; }
+  .toc ol { margin: 4pt 0 0 14pt; padding: 0; font-size: 10pt; }
+  .toc ol li { margin: 2pt 0; }
+
+  .footer-note {
+    margin-top: 24pt;
+    padding-top: 8pt;
+    border-top: 1px solid var(--rule);
+    color: var(--muted);
+    font-size: 8.5pt;
+  }
+
+  /* Print rules */
+  @media print {
+    body { padding: 0; }
+    h2, h3 { page-break-after: avoid; }
+    .role-card, .sod-rule, .matrix tr, .callout { page-break-inside: avoid; }
+    /* The matrix is wide — rotate it on its own page */
+    .matrix-wrapper { page: big; }
+    .no-print { display: none; }
+  }
+
+  .print-hint {
+    background: var(--bg-info);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 6pt 12pt;
+    border-radius: 4pt;
+    font-size: 9.5pt;
+    margin: 0 0 14pt 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="print-hint no-print">
+  <strong>To save as PDF:</strong> press <kbd>Ctrl</kbd>+<kbd>P</kbd> (Windows) or <kbd>⌘</kbd>+<kbd>P</kbd> (Mac), then choose <em>Save as PDF</em>. The matrix table prints best on A3 landscape; everything else fits A4 portrait.
+</div>
+
+<h1>Roles, Permissions &amp; Separation of Duties</h1>
+<p class="meta-line">
+  <strong>Application:</strong> MIDSA Quote App &nbsp;·&nbsp;
+  <strong>Document version:</strong> 1.0 &nbsp;·&nbsp;
+  <strong>Generated:</strong> 2026-05-26 &nbsp;·&nbsp;
+  <strong>Source of truth:</strong> <code>shared/permissions.js</code>
+</p>
+<p class="meta-line">
+  <strong>Standards anchor:</strong>
+  ISO/IEC 27001:2022 A.5.3 (Segregation of Duties),
+  A.5.15 (Access Control),
+  A.5.16 (Identity Management),
+  A.5.17 (Authentication Information),
+  A.5.18 (Access Rights),
+  A.8.2 (Privileged Access Rights),
+  A.8.3 (Information Access Restriction);
+  ISO/IEC 25010 (Security &amp; Usability);
+  OWASP ASVS v4.0 V4 (Access Control);
+  OWASP API Security Top 10 — API1:2023 Broken Object Level Authorization,
+  API5:2023 Broken Function Level Authorization.
+</p>
+
+<div class="toc no-print">
+  <h4>Contents</h4>
+  <ol>
+    <li>Executive Summary — the authorisation model in one page</li>
+    <li>Roles at a Glance (8 roles, departments, tiers)</li>
+    <li>Full Action × Role Matrix (the master grid)</li>
+    <li>Per-Role Capability Detail (what each role specifically can and cannot do)</li>
+    <li>Separation-of-Duties Rules (the four runtime invariants + the role-based bypasses)</li>
+    <li>Cross-Role Intersections (read/write boundaries, escalation paths)</li>
+    <li>Customer Portal &amp; External Access</li>
+    <li>Outside the Model (what is deliberately NOT permission-gated, and why)</li>
+    <li>Audit Trail &amp; Compensating Controls</li>
+    <li>Review Questions for Sign-off</li>
+  </ol>
+</div>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>1. Executive Summary</h2>
+
+<p>
+  The MIDSA Quote App enforces access via a <strong>role-based access-control (RBAC) catalogue</strong>
+  defined in a single file (<code>shared/permissions.js</code>) that is imported by
+  <em>both</em> the React frontend (to hide UI) and the Express backend (to gate routes).
+  This eliminates the most common cause of authorisation drift — the UI showing a button
+  while the server forgets to gate the corresponding API call.
+</p>
+
+<p>
+  Three layers of defence apply, in order, on every privileged action:
+</p>
+
+<table>
+  <thead>
+    <tr><th style="width:8%">Layer</th><th style="width:22%">Mechanism</th><th>What it asks</th><th style="width:24%">Failure mode</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>JWT authentication</td>
+      <td>"Is this request signed by a token we issued, and is it still valid (≤ 15 min access token)?"</td>
+      <td>401 Unauthorized</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Role × Action grant (RBAC)</td>
+      <td>"Does this role hold the action key required by this route?"</td>
+      <td>403 Forbidden</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Separation-of-Duties predicate</td>
+      <td>"For approval-class actions, is the approver a different person than the creator?"</td>
+      <td>403 with SoD-specific message</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+  Beyond these three, an <strong>immutable audit log</strong> (<code>QA_AUDIT_LOGS</code>)
+  records every mutation with the actor's email, before/after diff, request ID and IP.
+  This is the compensating control that ISO 27001 A.5.3 explicitly accepts when role-based SoD
+  bypasses are unavoidable for operational reasons (see §5).
+</p>
+
+<div class="callout iso">
+  <p><strong>Why this design satisfies A.5.3 (Segregation of Duties):</strong>
+  the four approval-class actions
+  (<code>invoice.approve.sales</code>, <code>invoice.approve.finance</code>,
+  <code>rfq.approve.award</code>, <code>invoice.customer_action</code>) all enforce
+  "approver ≠ creator/sender" at the route level. Where role-level authority overrides
+  this for operational reasons (admin / finance_head), the override is documented in code,
+  flagged in this document, and observable in the audit log.</p>
+</div>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>2. Roles at a Glance</h2>
+
+<p>Eight tiered roles, grouped into four departments plus the system tier and the external portal:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Role</th>
+      <th>Department</th>
+      <th>Tier</th>
+      <th>Typical user</th>
+      <th>Primary mandate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Administrator</strong><br><code>admin</code></td>
+      <td>System</td>
+      <td>admin</td>
+      <td>IT lead / app owner</td>
+      <td>Provision users, system configuration, emergency override.</td>
+    </tr>
+    <tr>
+      <td><strong>Finance Head</strong><br><code>finance_head</code></td>
+      <td>Finance</td>
+      <td>head</td>
+      <td>Financial controller / CFO</td>
+      <td>Final approval of invoices, mark paid, cross-department visibility.</td>
+    </tr>
+    <tr>
+      <td><strong>Finance Officer</strong><br><code>finance_officer</code></td>
+      <td>Finance</td>
+      <td>officer</td>
+      <td>Bookkeeper / billing clerk</td>
+      <td>Master data, pricing, payment logging, statements.</td>
+    </tr>
+    <tr>
+      <td><strong>Sales Head</strong><br><code>sales_head</code></td>
+      <td>Sales</td>
+      <td>head</td>
+      <td>Sales Manager / VP Sales</td>
+      <td>First-line invoice approval, team visibility, target setting.</td>
+    </tr>
+    <tr>
+      <td><strong>Sales Officer</strong><br><code>sales_officer</code></td>
+      <td>Sales</td>
+      <td>officer</td>
+      <td>Sales representative</td>
+      <td>Create quotes, send to customer, record customer actions.</td>
+    </tr>
+    <tr>
+      <td><strong>Procurement Head</strong><br><code>procurement_head</code></td>
+      <td>Procurement</td>
+      <td>head</td>
+      <td>Procurement Manager</td>
+      <td>Award RFQs, deactivate vendors, edit procurement thresholds.</td>
+    </tr>
+    <tr>
+      <td><strong>Procurement Officer</strong><br><code>procurement_officer</code></td>
+      <td>Procurement</td>
+      <td>officer</td>
+      <td>Procurement buyer</td>
+      <td>Create / send RFQs, log responses, recommend vendors, receive goods.</td>
+    </tr>
+    <tr>
+      <td><strong>Customer (Portal)</strong><br><code>customer</code></td>
+      <td>External</td>
+      <td>customer</td>
+      <td>Buyer at a customer company</td>
+      <td>View / accept / reject their own invoices via the customer portal.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <p><strong>Legacy roles still in some old JWTs:</strong>
+  <code>controller</code> → mapped to <code>finance_head</code>;
+  <code>procurement</code> → <code>procurement_head</code>;
+  <code>sales</code> → <code>sales_officer</code>.
+  Both the frontend <code>extractRole()</code> helper and the backend <code>authMiddleware</code>
+  transparently upgrade these, so application code never has to handle both forms.</p>
+</div>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>3. Full Action × Role Matrix</h2>
+
+<p>
+  Every gated action in the system. Each row is one capability; each column is one role.
+  A check (<span style="color:var(--ok);font-weight:600">✓</span>) means the role can perform the
+  action. A dot (<span style="color:var(--na)">·</span>) means it cannot. This matrix is the
+  definitive source — it is generated directly from <code>ROLE_ACTIONS</code> in
+  <code>shared/permissions.js</code>.
+</p>
+
+<div class="legend">
+  <span class="l-ok">Allowed</span>
+  <span class="l-no">Denied</span>
+</div>
+
+<div class="matrix-wrapper">
+<table class="matrix">
+  <thead>
+    <tr>
+      <th class="action-col">Action key &amp; description</th>
+      <th class="role-col">Admin</th>
+      <th class="role-col">Finance&nbsp;Head</th>
+      <th class="role-col">Finance&nbsp;Officer</th>
+      <th class="role-col">Sales&nbsp;Head</th>
+      <th class="role-col">Sales&nbsp;Officer</th>
+      <th class="role-col">Procurement&nbsp;Head</th>
+      <th class="role-col">Procurement&nbsp;Officer</th>
+      <th class="role-col">Customer</th>
+    </tr>
+  </thead>
+  <tbody>
+
+    <tr class="category-row"><td colspan="9">Sales workspace</td></tr>
+    <tr><td class="action-col"><code>dashboard.sales.read</code> — View sales dashboard</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>quote.create</code> — Create / edit a quote (draft)</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.send.customer</code> — Send approved invoice to customer</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.read.own</code> — Open the Invoices workspace page (broad-read ERP model — backend returns all)</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.approve.sales</code> — Approve quote pre-customer-send <em>(SoD-gated)</em></td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.reject.sales</code> — Reject quote pre-customer-send</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.customer_action</code> — Mark accept/reject on behalf of customer <em>(SoD-gated)</em></td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+
+    <tr class="category-row"><td colspan="9">Finance workspace</td></tr>
+    <tr><td class="action-col"><code>dashboard.finance.read</code> — View finance / controller dashboard</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.read.all</code> — View every invoice in the system</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.edit.pricing</code> — Edit invoice pricing (Pending Pricing)</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.approve.finance</code> — Finance-approve (controller signature) <em>(SoD-gated)</em></td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.reject.finance</code> — Finance-reject / send back</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.reapprove</code> — Re-approve after sourcing variance</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>invoice.mark_paid</code> — Mark invoice as paid</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+
+    <tr class="category-row"><td colspan="9">Procurement workspace</td></tr>
+    <tr><td class="action-col"><code>dashboard.procurement.read</code> — View procurement dashboard</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>pr.read</code> — View purchase requisitions</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>pr.create</code> — Create a purchase requisition</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>pr.cancel</code> — Cancel a purchase requisition</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>pr.fulfill</code> — Mark a PR fulfilled</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>pr.assign</code> — Assign PR to a procurement officer (head only)</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>rfq.read</code> — View RFQs</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>rfq.create</code> — Build an RFQ</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>rfq.send</code> — Send RFQ to vendors</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>rfq.response.log</code> — Log a vendor response (with attachments)</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>rfq.recommend</code> — Recommend a vendor for award</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>rfq.approve.award</code> — Approve recommended award (head) <em>(SoD-gated)</em></td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>rfq.reject</code> — Reject the recommendation, send back</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>rfq.cancel</code> — Cancel an RFQ</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>rfq.escalate</code> — Flag RFQ for escalation (stalled / urgent)</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>goods_receipt.log</code> — Log goods-receipt against an awarded PR</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>goods_receipt.return</code> — Log a return / RMA against a previous receipt</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>vendor_scorecard.read</code> — View vendor performance scorecards</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>procurement.settings.read</code> — View procurement thresholds / approvals</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>procurement.settings.edit</code> — Edit procurement thresholds / approvals</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+
+    <tr class="category-row"><td colspan="9">Master data</td></tr>
+    <tr><td class="action-col"><code>customer.read</code> — View customers</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>customer.write</code> — Create / edit / delete a customer</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>inventory.read</code> — View inventory</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>inventory.write</code> — Create / edit / delete an inventory item</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>vendor.read</code> — View vendors</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>vendor.write</code> — Create / edit a vendor</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>vendor.deactivate</code> — Deactivate / re-activate a vendor</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>pricing.read</code> — View pricing rules</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>pricing.write</code> — Edit pricing rules</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>tax.read</code> — View tax configuration</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>tax.edit</code> — Edit tax configuration</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>fx.read</code> — View exchange rates</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>fx.edit</code> — Edit exchange rates</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>targets.read</code> — View performance targets</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>targets.edit</code> — Set / update performance targets</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>company.edit</code> — Edit invoice header / footer / bank account</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+
+    <tr class="category-row"><td colspan="9">Collections (Module 2)</td></tr>
+    <tr><td class="action-col"><code>payment.log</code> — Log a customer payment against an invoice</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>payment.reverse</code> — Reverse a previously-logged payment (officer ≤ 24h)</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>payment.apply.unallocated</code> — Apply unallocated payment to invoices</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>collections.action.log</code> — Log a collection follow-up</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>customer.statement.read</code> — View a customer statement / ledger</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>customer.statement.send</code> — Send a customer statement (PDF)</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>wht.config.edit</code> — Edit withholding-tax types and profiles</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+
+    <tr class="category-row"><td colspan="9">Reports (Module 5)</td></tr>
+    <tr><td class="action-col"><code>reports.run.sales</code> — Run / export sales reports</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>reports.run.finance</code> — Run / export finance reports</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>reports.run.procurement</code> — Run / export procurement reports</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+
+    <tr class="category-row"><td colspan="9">Signatures, audit, system</td></tr>
+    <tr><td class="action-col"><code>signature.manage</code> — Manage my approval signatures</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>audit.read.own</code> — View my own audit trail</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>audit.read.department</code> — View audit for my department</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>audit.read.all</code> — View audit across all departments</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>system.invoice_counter.edit</code> — Mint next invoice number (on approval)</td>
+      <td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>user.manage</code> — Provision / promote / deactivate users</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>user.impersonate</code> — Act-as another user (audited)</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>system.act_as_emergency</code> — Emergency override (double-audited)</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+    <tr><td class="action-col"><code>system.errors.read</code> — Open the Error Monitor (admin observability of QA_ERROR_LOG)</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td></tr>
+
+    <tr class="category-row"><td colspan="9">Customer portal</td></tr>
+    <tr><td class="action-col"><code>portal.read.own</code> — View my own customer portal</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td></tr>
+    <tr><td class="action-col"><code>portal.accept</code> — Accept / reject invoice as the customer</td>
+      <td class="role-col ok"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col no"></td><td class="role-col ok"></td></tr>
+
+  </tbody>
+</table>
+</div>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>4. Per-Role Capability Detail</h2>
+
+<!-- Administrator -->
+<div class="role-card admin">
+  <h3>Administrator <span class="tier-chip">System tier</span></h3>
+  <p class="who"><strong>Who:</strong> IT lead, app owner, designated incident responder. Typically 1–2 people for the whole organisation.</p>
+  <p>The single role with universal grant. Holds <strong>every</strong> action key in <code>ACTIONS</code>. Used for provisioning users, debugging via "act-as," emergency override of business rules, and configuration changes that span departments.</p>
+
+  <div class="perm-grid">
+    <div class="group-title">Privileged — admin-only</div>
+    <ul>
+      <li>👤 <code>user.manage</code> — provision / promote / deactivate users</li>
+      <li>🎭 <code>user.impersonate</code> — act as another user (every action logged with the real actor)</li>
+      <li>🚨 <code>system.act_as_emergency</code> — emergency override of SoD / business rules (double-audited)</li>
+      <li>🛰 <code>system.errors.read</code> — open the real-time Error Monitor (QA_ERROR_LOG observability + ack/resolve workflow)</li>
+    </ul>
+    <div class="group-title">Universal grant</div>
+    <ul>
+      <li>Every action listed in §3 — admin's row is fully checked.</li>
+      <li>SoD bypass applies on the three approval-class actions where it's documented (sales-approve, finance-approve, customer-action).</li>
+    </ul>
+  </div>
+
+  <div class="cant"><strong>What admin should NOT do day-to-day:</strong> originate quotes, log payments, or perform approvals in normal operation. Every admin action is audit-logged with the actor email; using admin for routine business actions makes the audit signal noisy and risks an ISO 27001 A.5.18 finding (least privilege). The right pattern is: <em>grant the user the correct tiered role; reserve admin for cases where no tiered role fits.</em></div>
+</div>
+
+<!-- Finance Head -->
+<div class="role-card finance">
+  <h3>Finance Head <span class="tier-chip">Head tier · Finance</span></h3>
+  <p class="who"><strong>Who:</strong> Financial controller, CFO, or equivalent. The accountable signing authority on the finance side.</p>
+  <p>Inherits every finance-officer capability plus final-approval authority on invoices and full cross-department visibility (read-only into Sales and Procurement so finance has the context needed for cash-flow planning).</p>
+
+  <div class="perm-grid">
+    <div class="group-title">Final approval authority</div>
+    <ul>
+      <li>✅ <code>invoice.approve.sales</code> — can stamp sales-side approval</li>
+      <li>✅ <code>invoice.approve.finance</code> — controller signature</li>
+      <li>↩️ <code>invoice.reject.finance</code> — send back to pricing / draft</li>
+      <li>🔁 <code>invoice.reapprove</code> — re-approve after sourcing variance</li>
+      <li>💰 <code>invoice.mark_paid</code> — mark invoice as paid (finance only)</li>
+    </ul>
+    <div class="group-title">Cross-department visibility</div>
+    <ul>
+      <li>👁️ <code>pr.read</code> + <code>rfq.read</code> + <code>rfq.escalate</code></li>
+      <li>👁️ <code>vendor_scorecard.read</code> (spend-risk oversight)</li>
+      <li>📊 <code>audit.read.all</code> — across every department</li>
+      <li>📊 <code>reports.run.finance</code> + <code>reports.run.sales</code> + <code>reports.run.procurement</code></li>
+      <li>⚙️ <code>procurement.settings.read</code> + <code>procurement.settings.edit</code> <em>(historical — finance head could set procurement thresholds)</em></li>
+    </ul>
+    <div class="group-title">Inherited from Finance Officer</div>
+    <ul>
+      <li>Full master data: customer, inventory, pricing, tax, FX, targets, company branding</li>
+      <li>All Module 2 collections actions (no 24h reverse-window restriction)</li>
+      <li>WHT configuration, signature management</li>
+    </ul>
+  </div>
+
+  <div class="cant"><strong>Cannot:</strong> create or send quotes to customers (no <code>invoice.send.customer</code>); record customer-on-behalf acceptances (no <code>invoice.customer_action</code> — that's a sales-side action); deactivate vendors (procurement-head responsibility); provision users.</div>
+</div>
+
+<!-- Finance Officer -->
+<div class="role-card finance">
+  <h3>Finance Officer <span class="tier-chip">Officer tier · Finance</span></h3>
+  <p class="who"><strong>Who:</strong> Bookkeeper, billing clerk, accounts-receivable analyst.</p>
+  <p>The day-to-day finance worker. Owns master data, configurations, and the payment-application workflow. Cannot approve invoices — those land on the head's desk.</p>
+
+  <div class="perm-grid">
+    <div class="group-title">Day-to-day finance work</div>
+    <ul>
+      <li>💼 <code>invoice.read.all</code> — see every invoice (read-only for state changes)</li>
+      <li>📝 <code>invoice.edit.pricing</code> — fill prices on Pending-Pricing invoices</li>
+      <li>💰 <code>payment.log</code> + <code>payment.apply.unallocated</code></li>
+      <li>↩️ <code>payment.reverse</code> <em>(within 24h — older requires head)</em></li>
+      <li>📋 <code>collections.action.log</code> + statement read / send</li>
+      <li>📊 <code>reports.run.finance</code></li>
+    </ul>
+    <div class="group-title">Master data ownership</div>
+    <ul>
+      <li>👥 <code>customer.write</code> + 📦 <code>inventory.write</code></li>
+      <li>💱 <code>fx.edit</code> + 🧾 <code>tax.edit</code> + 🎯 <code>targets.edit</code></li>
+      <li>💵 <code>pricing.write</code> + <code>wht.config.edit</code></li>
+      <li>🏢 <code>company.edit</code> — invoice header, footer, bank info</li>
+      <li>🔢 <code>system.invoice_counter.edit</code> — mints invoice numbers on approval</li>
+    </ul>
+  </div>
+
+  <div class="cant"><strong>Cannot:</strong> approve, reject, or mark-paid invoices (head only); write vendors (procurement does that — finance is read-only); access sales pipeline or quote authoring; view cross-department audit beyond own actions.</div>
+</div>
+
+<!-- Sales Head -->
+<div class="role-card sales">
+  <h3>Sales Head <span class="tier-chip">Head tier · Sales</span></h3>
+  <p class="who"><strong>Who:</strong> Sales Manager, VP Sales, Regional Sales Lead.</p>
+  <p>Owns first-line approval of every outgoing quote/invoice and the team's pipeline. The sales-head approval mints the permanent invoice number (counter increments).</p>
+
+  <div class="perm-grid">
+    <div class="group-title">Approval &amp; pipeline</div>
+    <ul>
+      <li>✅ <code>invoice.approve.sales</code> + ↩️ <code>invoice.reject.sales</code></li>
+      <li>🔁 <code>invoice.reapprove</code> — after sourcing variance</li>
+      <li>🔢 <code>system.invoice_counter.edit</code> — mints permanent invoice ID</li>
+      <li>👥 <code>invoice.read.all</code> — see the whole sales pipeline (ERP broad-read; replaces legacy <code>invoice.read.team</code>)</li>
+      <li>📊 <code>audit.read.department</code> — sales-department audit</li>
+      <li>🎯 <code>targets.edit</code> — set team targets</li>
+    </ul>
+    <div class="group-title">Collections support (Module 2)</div>
+    <ul>
+      <li>📋 <code>customer.statement.read</code> + <code>send</code></li>
+      <li>📞 <code>collections.action.log</code> — log calls / emails / promises</li>
+      <li>💬 <em>Payment logging stays finance-only (sales tells customer they owe, finance records the receipt)</em></li>
+    </ul>
+    <div class="group-title">Inherited from Sales Officer</div>
+    <ul>
+      <li>Quote authoring, send to customer, customer-on-behalf action</li>
+      <li>Customer / inventory / pricing / FX <em>read</em> only</li>
+    </ul>
+  </div>
+
+  <div class="cant"><strong>Cannot:</strong> finance-approve invoices (controller signature is finance-head); log payments; edit master data (customer.write / inventory.write are finance-officer's); see procurement workflows beyond escalation flag.</div>
+</div>
+
+<!-- Sales Officer -->
+<div class="role-card sales">
+  <h3>Sales Officer <span class="tier-chip">Officer tier · Sales</span></h3>
+  <p class="who"><strong>Who:</strong> Sales representative.</p>
+  <p>The narrowest internal role on purpose. Can create quotes for their own customers, send approved quotes to the customer, and record the customer's accept/reject decision when it comes back. Cannot approve own work — every quote goes to sales-head and then finance-head.</p>
+
+  <div class="perm-grid">
+    <div class="group-title">Their own pipeline</div>
+    <ul>
+      <li>✏️ <code>quote.create</code> — draft and edit quotes</li>
+      <li>📤 <code>invoice.send.customer</code> — send the approved quote</li>
+      <li>📥 <code>invoice.customer_action</code> — record customer accept/reject <em>(SoD: cannot be the same person who sent it; admin/finance_head bypass — see §5)</em></li>
+      <li>👁️ <code>invoice.read.own</code> — see only the quotes they created</li>
+    </ul>
+    <div class="group-title">Read-only context</div>
+    <ul>
+      <li>👥 <code>customer.read</code> + 📦 <code>inventory.read</code> + 💵 <code>pricing.read</code> + 💱 <code>fx.read</code></li>
+      <li>🎯 <code>targets.read</code> (own / team targets, not edit)</li>
+      <li>📊 <code>audit.read.own</code></li>
+      <li>📊 <code>reports.run.sales</code></li>
+    </ul>
+  </div>
+
+  <div class="cant"><strong>Cannot:</strong> approve anything (everything they author must be approved by sales-head and then finance-head); open the dedicated <em>All Invoices</em> page (gated by <code>invoice.read.all</code>) — but under the ERP broad-read model they DO see every invoice in their own workspace page; edit customers / inventory / pricing; access procurement, finance, or admin workspaces.</div>
+</div>
+
+<!-- Procurement Head -->
+<div class="role-card proc">
+  <h3>Procurement Head <span class="tier-chip">Head tier · Procurement</span></h3>
+  <p class="who"><strong>Who:</strong> Procurement Manager, Head of Buying.</p>
+  <p>Owns RFQ awards — only the head can convert an officer's recommendation into a binding award. Also controls vendor lifecycle (deactivation) and procurement thresholds.</p>
+
+  <div class="perm-grid">
+    <div class="group-title">Approval &amp; vendor lifecycle</div>
+    <ul>
+      <li>🏆 <code>rfq.approve.award</code> — bind an award <em>(SoD-gated)</em></li>
+      <li>↩️ <code>rfq.reject</code> + ✖️ <code>rfq.cancel</code></li>
+      <li>📋 <code>pr.assign</code> — assign PRs to officers</li>
+      <li>🚫 <code>vendor.deactivate</code></li>
+      <li>📊 <code>vendor_scorecard.read</code></li>
+      <li>📊 <code>audit.read.department</code> — procurement-department</li>
+      <li>⚙️ <code>procurement.settings.edit</code> — adjust approval thresholds</li>
+      <li>✒️ <code>signature.manage</code></li>
+    </ul>
+    <div class="group-title">Inherited from Procurement Officer</div>
+    <ul>
+      <li>Full RFQ lifecycle: create, send, log responses, recommend, escalate</li>
+      <li>PR lifecycle: read, create, cancel, fulfil</li>
+      <li>Goods receipts: log + return</li>
+      <li>Vendor read/write, customer read, inventory read</li>
+    </ul>
+  </div>
+
+  <div class="cant"><strong>Cannot:</strong> recommend AND approve the same award (SoD blocks this); see finance details (no <code>invoice.read.all</code>); originate quotes; edit finance master data.</div>
+</div>
+
+<!-- Procurement Officer -->
+<div class="role-card proc">
+  <h3>Procurement Officer <span class="tier-chip">Officer tier · Procurement</span></h3>
+  <p class="who"><strong>Who:</strong> Procurement buyer, sourcing analyst, warehouse receiver.</p>
+  <p>The hands of the procurement workflow. Drives every RFQ from creation to recommendation; the head's award stamp is the final binding step.</p>
+
+  <div class="perm-grid">
+    <div class="group-title">RFQ &amp; PR lifecycle</div>
+    <ul>
+      <li>📝 <code>rfq.create</code> + 📤 <code>rfq.send</code></li>
+      <li>📥 <code>rfq.response.log</code> — log vendor quotes with attachments</li>
+      <li>🤝 <code>rfq.recommend</code> — recommend an award <em>(then head approves)</em></li>
+      <li>🚨 <code>rfq.escalate</code> — flag stalled RFQs</li>
+      <li>📋 <code>pr.read</code> + <code>pr.create</code> + <code>pr.cancel</code> + <code>pr.fulfill</code></li>
+    </ul>
+    <div class="group-title">Receiving &amp; vendor data</div>
+    <ul>
+      <li>📦 <code>goods_receipt.log</code> + <code>goods_receipt.return</code></li>
+      <li>🏪 <code>vendor.read</code> + <code>vendor.write</code></li>
+      <li>👥 <code>customer.read</code> + 📦 <code>inventory.read</code></li>
+      <li>📊 <code>reports.run.procurement</code></li>
+      <li>⚙️ <code>procurement.settings.read</code></li>
+    </ul>
+  </div>
+
+  <div class="cant"><strong>Cannot:</strong> approve their own RFQ awards (SoD: head must approve a different person's recommendation); deactivate vendors; assign PRs to other officers; edit procurement settings / thresholds; see finance or sales workspaces.</div>
+</div>
+
+<!-- Customer -->
+<div class="role-card customer">
+  <h3>Customer (Portal) <span class="tier-chip">External tier</span></h3>
+  <p class="who"><strong>Who:</strong> External — the actual buyer at a customer company.</p>
+  <p>The narrowest role. Has access only to their own portal page; the backend additionally enforces a customer-scope check on <code>GET /api/customers/:id</code> so a customer role can only see the record matching their own login.</p>
+
+  <div class="perm-grid">
+    <div class="group-title">The two actions</div>
+    <ul>
+      <li>👁️ <code>portal.read.own</code> — view my own customer portal</li>
+      <li>✅ <code>portal.accept</code> — accept / reject an invoice as the customer</li>
+    </ul>
+  </div>
+
+  <div class="cant"><strong>Explicitly denied:</strong> every other action key. Even <code>customer.read</code> (master-data list) and <code>invoice.read.own</code> (internal-side) are denied — the customer portal uses dedicated routes that filter to their own records only.</div>
+</div>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>5. Separation-of-Duties Rules</h2>
+
+<p>
+  Four runtime invariants are enforced on the approval-class actions. They run <em>after</em>
+  the RBAC permission check passes, so they answer the question:
+  <em>"Even though this role has the permission, is the specific actor the wrong person to do this on this specific record?"</em>
+</p>
+
+<div class="callout iso">
+  <p><strong>ISO/IEC 27001:2022 A.5.3 — Segregation of Duties.</strong>
+  Where it is operationally infeasible to enforce strict separation (e.g. small teams,
+  off-hours, single-administrator firms), A.5.3 permits role-based overrides
+  <em>provided</em> compensating controls exist. In this system, the compensating control is the
+  immutable audit log (<code>QA_AUDIT_LOGS</code>) which captures actor email, before/after,
+  request ID, and IP for every privileged action. Two of the four SoD rules carry a documented
+  role-based bypass for <code>admin</code> and <code>finance_head</code>; this is intentional and matches
+  the standard's accepted pattern.</p>
+</div>
+
+<!-- SoD rule 1 -->
+<div class="sod-rule">
+  <h3>SoD-1 · <code>invoice.approve.sales</code></h3>
+  <p><strong>Where it fires:</strong> when an invoice transitions <em>Pending Approval → Approved</em> on the sales side.</p>
+  <p><strong>Predicate:</strong></p>
+  <div class="rule-formula">approver.email ≠ invoice.createdBy <span style="color:var(--muted)">AND</span> approver.email ≠ invoice.salesPersonId</div>
+  <p><strong>Intent:</strong> the user who drafted or owned the quote cannot also approve it. Forces a second pair of eyes between authoring and sending.</p>
+  <div class="bypass"><strong>Bypass:</strong> <code>admin</code> and <code>finance_head</code> roles pass automatically. Justified by A.5.3 — these roles carry organisational signing authority; the audit log is the compensating control.</div>
+</div>
+
+<!-- SoD rule 2 -->
+<div class="sod-rule">
+  <h3>SoD-2 · <code>invoice.approve.finance</code></h3>
+  <p><strong>Where it fires:</strong> when an invoice transitions through finance-side approval (controller signature).</p>
+  <p><strong>Predicate:</strong></p>
+  <div class="rule-formula">approver.email ≠ invoice.createdBy <span style="color:var(--muted)">AND</span> approver.email ≠ invoice.salesPersonId</div>
+  <p><strong>Intent:</strong> mirrors SoD-1 — the original sales author cannot also stamp the controller signature. Forces clean three-step separation: <em>author → sales-head approve → finance-head approve</em>.</p>
+  <div class="bypass"><strong>Bypass:</strong> <code>admin</code> and <code>finance_head</code> roles pass automatically. Same rationale as SoD-1.</div>
+</div>
+
+<!-- SoD rule 3 -->
+<div class="sod-rule">
+  <h3>SoD-3 · <code>rfq.approve.award</code></h3>
+  <p><strong>Where it fires:</strong> when a procurement head clicks "Approve award" on an RFQ that an officer recommended.</p>
+  <p><strong>Predicate:</strong></p>
+  <div class="rule-formula">approver.email ≠ rfq.recommendedBy</div>
+  <p><strong>Intent:</strong> the procurement officer who recommended cannot also approve. Forces a second person before money is committed.</p>
+  <div class="bypass"><strong>Bypass <em>(added 2026-05-26)</em>:</strong> <code>admin</code>, <code>procurement_head</code> (domain authority), and <code>finance_head</code> (parity with the other 3 SoDs + cross-departmental spend oversight) pass automatically. Justified under ISO/IEC 27001:2022 A.5.3 — the audit log (<code>QA_AUDIT_LOGS</code>) records actor email + before/after for every state change, providing the compensating control the standard requires. Closes the last admin-bypass gap so admins truly have no SoD restrictions anywhere in the system.</div>
+</div>
+
+<!-- SoD rule 4 -->
+<div class="sod-rule">
+  <h3>SoD-4 · <code>invoice.customer_action</code></h3>
+  <p><strong>Where it fires:</strong> when an internal user clicks "Mark accepted" or "Mark rejected" on a customer's behalf (e.g. customer confirmed by phone/email).</p>
+  <p><strong>Predicate:</strong></p>
+  <div class="rule-formula">actor.email ≠ invoice.sentBy</div>
+  <p><strong>Intent:</strong> the sales rep who sent the invoice cannot also pretend the customer said yes. Forces a second internal party to confirm the customer's voice — a guard against bookkeeping fraud where a rep marks an unsent invoice "Accepted" to close their pipeline.</p>
+  <div class="bypass"><strong>Bypass <em>(added 2026-05-26)</em>:</strong> <code>admin</code> and <code>finance_head</code> pass automatically. Justified by A.5.3 — when a customer confirms by phone/email and the head/admin records it, the audit log is the compensating control. Previously this rule was the only one without the bypass, which caused legitimate admin actions to silently fail.</div>
+</div>
+
+<table>
+  <thead>
+    <tr><th>Rule</th><th>Approver role typically</th><th>Predicate</th><th>Admin bypass?</th><th>Finance-head bypass?</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>SoD-1 (sales approval)</td><td>Sales Head</td><td>approver ≠ creator/salesPerson</td><td>✓ Yes</td><td>✓ Yes</td></tr>
+    <tr><td>SoD-2 (finance approval)</td><td>Finance Head</td><td>approver ≠ creator/salesPerson</td><td>✓ Yes</td><td>✓ Yes</td></tr>
+    <tr><td>SoD-3 (RFQ award)</td><td>Procurement Head</td><td>approver ≠ recommender</td><td>✓ Yes</td><td>✓ Yes</td></tr>
+    <tr><td>SoD-4 (customer action)</td><td>Sales Officer</td><td>actor ≠ sentBy</td><td>✓ Yes</td><td>✓ Yes</td></tr>
+  </tbody>
+</table>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>6. Cross-Role Intersections</h2>
+
+<h3>6.1 The three-step invoice approval chain</h3>
+
+<table>
+  <thead>
+    <tr><th>Step</th><th>Who</th><th>Action</th><th>SoD constraint</th><th>State transition</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>Sales Officer</td><td>Authors quote, sends for approval</td><td>—</td><td>Draft → Pending Approval</td></tr>
+    <tr><td>2</td><td>Sales Head</td><td>Sales-side approval</td><td>Approver ≠ author <em>(SoD-1)</em></td><td>Pending Approval → Approved</td></tr>
+    <tr><td>3</td><td>Finance Head</td><td>Controller signature</td><td>Approver ≠ author <em>(SoD-2)</em></td><td>Approved → Approved (countersigned)</td></tr>
+    <tr><td>4</td><td>Sales Officer</td><td>Sends approved invoice to customer</td><td>—</td><td>Approved → Awaiting Acceptance</td></tr>
+    <tr><td>5</td><td>Customer <em>(or internal on behalf)</em></td><td>Accept / Reject</td><td>actor ≠ sender <em>(SoD-4)</em></td><td>Awaiting → Customer Accepted / Rejected</td></tr>
+    <tr><td>6</td><td>Finance Officer</td><td>Logs payment</td><td>—</td><td>Accepted → Partially Paid / Paid</td></tr>
+    <tr><td>7</td><td>Finance Head</td><td>Marks invoice paid</td><td>—</td><td>→ Paid</td></tr>
+  </tbody>
+</table>
+
+<h3>6.2 The two-step procurement award chain</h3>
+
+<table>
+  <thead>
+    <tr><th>Step</th><th>Who</th><th>Action</th><th>SoD constraint</th><th>State transition</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>Procurement Officer</td><td>Creates PR (or sales workflow generates a sourced line)</td><td>—</td><td>—</td></tr>
+    <tr><td>2</td><td>Procurement Officer</td><td>Builds RFQ, sends to vendors, logs responses</td><td>—</td><td>RFQ Draft → Sent → Receiving</td></tr>
+    <tr><td>3</td><td>Procurement Officer</td><td>Recommends a vendor</td><td>—</td><td>Receiving → Pending Approval</td></tr>
+    <tr><td>4</td><td>Procurement Head</td><td>Approves the award</td><td>Approver ≠ recommender <em>(SoD-3)</em></td><td>Pending Approval → Awarded</td></tr>
+    <tr><td>5</td><td>Procurement Officer</td><td>Receives goods + logs receipt</td><td>—</td><td>Awarded → Fulfilled</td></tr>
+  </tbody>
+</table>
+
+<h3>6.3 Read-access intersections</h3>
+
+<p>Read access is intentionally permissive across departments — this prevents the operational tax of asking the head's permission for read-only context — while write access stays tightly scoped.</p>
+
+<table>
+  <thead>
+    <tr><th>Resource</th><th>Sales side</th><th>Finance side</th><th>Procurement side</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Customers</td><td>Officer + Head <em>read</em></td><td>Officer + Head <em>write</em></td><td>Officer + Head <em>read</em></td></tr>
+    <tr><td>Inventory</td><td>Officer + Head <em>read</em></td><td>Officer + Head <em>write</em></td><td>Officer + Head <em>read</em></td></tr>
+    <tr><td>Vendors</td><td>—</td><td>Officer + Head <em>read</em>, Head <em>write</em></td><td>Officer + Head <em>write</em>, Head <em>deactivate</em></td></tr>
+    <tr><td>Pricing rules</td><td>Officer + Head <em>read</em></td><td>Officer + Head <em>write</em></td><td>—</td></tr>
+    <tr><td>Targets</td><td>Officer <em>read</em>, Head <em>edit</em></td><td>Officer + Head <em>edit</em></td><td>—</td></tr>
+    <tr><td>Tax / FX config</td><td>Officer + Head <em>read</em> (FX only)</td><td>Officer + Head <em>edit</em></td><td>—</td></tr>
+    <tr><td>Audit trail</td><td>Officer <em>own</em>, Head <em>dept</em></td><td>Officer <em>own</em>, Head <em>all</em></td><td>Officer <em>own</em>, Head <em>dept</em></td></tr>
+  </tbody>
+</table>
+
+<h3>6.4 Escalation paths</h3>
+
+<p>When an officer hits a permission boundary, the right next step:</p>
+<ul>
+  <li>Sales officer needs to approve their own quote → <strong>send to Sales Head</strong> (SoD-1 will block self-approval anyway).</li>
+  <li>Sales officer needs the customer-action recorded on an invoice they sent → <strong>ask another sales rep, sales head, finance head, or admin</strong> (SoD-4 blocks self-action; the latter two bypass SoD as a compensating control).</li>
+  <li>Procurement officer needs to approve an award they recommended → <strong>send to Procurement Head or admin</strong> (admin / procurement-head / finance-head all bypass SoD-3 with audit-log compensation).</li>
+  <li>Finance officer needs to reverse a payment older than 24h → <strong>send to Finance Head</strong> (server-side window enforced in <code>collections.js</code>).</li>
+  <li>Any officer needs to edit procurement thresholds → <strong>send to Procurement Head</strong> or Finance Head (both can edit).</li>
+</ul>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>7. Customer Portal &amp; External Access</h2>
+
+<p>
+  Customers authenticate with the same OTP flow as internal users but receive a JWT whose
+  role is <code>customer</code>. Their access surface is intentionally minimal:
+</p>
+
+<ul>
+  <li>Page-level: only <code>customerPortal</code> renders for them; every other page returns Forbidden.</li>
+  <li>Record-level: the backend's <code>GET /api/customers/:id</code> handler additionally checks that the customer's email matches the customer record being requested. A crafted ID in the URL cannot escalate to another customer.</li>
+  <li>Mutation surface: the customer can only flip an invoice in <em>Awaiting Acceptance</em> state to <em>Customer Accepted</em> or <em>Customer Rejected</em>. They cannot edit amounts, line items, or any other invoice field.</li>
+  <li>Audit: every customer action is logged with the customer's email and IP, identically to internal user actions.</li>
+</ul>
+
+<div class="callout"><p><strong>Co-browse exception:</strong> <code>customerPortal</code> is the only page with <code>PAGE_PERMISSIONS[page] = null</code> (public for any authenticated user). This lets internal support staff open the portal to debug a customer issue. The customer-scope check on the API still applies, so internal users only see the customer record they navigated to — they cannot list other customers from inside the portal.</p></div>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>8. Outside the Model</h2>
+
+<p>Three deliberate omissions you should know about, with their justification:</p>
+
+<table>
+  <thead><tr><th>Capability</th><th>Why not gated</th><th>Compensating control</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Login page (<code>login</code>)</td>
+      <td>Anyone reaching the app can attempt to log in — that's the point of an authentication flow.</td>
+      <td>Rate-limited OTP, HMAC-SHA256 hashed OTPs, 200ms minimum latency floor against enumeration.</td>
+    </tr>
+    <tr>
+      <td>Customer portal page-level (<code>customerPortal</code>)</td>
+      <td>Internal staff need to co-browse for support purposes.</td>
+      <td>Record-level check on the customer API restricts a customer role to their own record.</td>
+    </tr>
+    <tr>
+      <td>Audit-log writes (<code>POST /api/audit-logs</code>)</td>
+      <td>Every authenticated user fires fire-and-forget telemetry. Gating it would silently break activity logging on permission-edge cases.</td>
+      <td>The endpoint validates the actor against the JWT — a user cannot log activity as someone else.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>9. Audit Trail &amp; Compensating Controls</h2>
+
+<p>
+  Two complementary audit mechanisms run in parallel:
+</p>
+
+<ol>
+  <li>
+    <strong><code>auditMiddleware</code> (backend, automatic)</strong> — runs after every
+    <code>POST</code>/<code>PUT</code>/<code>PATCH</code>/<code>DELETE</code>. Writes a row to
+    <code>QA_AUDIT_LOGS</code> containing: actor email, role, request method + path, request body
+    (PII-masked: passwords, OTPs, tokens replaced with <code>[REDACTED]</code>), response status,
+    request ID (for cross-correlation with structured logs), client IP, user-agent, and timestamp.
+    Cannot be bypassed by application code.
+  </li>
+  <li>
+    <strong><code>logActivity()</code> (frontend, semantic)</strong> — explicit calls from React
+    components on meaningful events (page views, button clicks the auto-middleware can't infer).
+    Validated server-side against the JWT.
+  </li>
+</ol>
+
+<p>
+  These two together satisfy ISO/IEC 27001:2022 <strong>A.8.15 (Logging)</strong> and
+  <strong>A.5.34 (Privacy &amp; protection of PII)</strong>, and serve as the compensating
+  control that A.5.3 requires when role-based SoD bypasses are accepted (see §5).
+</p>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+<h2>10. Review Questions for Sign-off</h2>
+
+<p>Use this checklist when you (or an external auditor) review the model. Each question maps
+to a specific ISO control.</p>
+
+<table>
+  <thead><tr><th style="width:6%">#</th><th>Question</th><th style="width:14%">Anchor</th><th style="width:18%">Where to verify</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Does every role have a documented business justification (no "just in case" roles)?</td><td>A.5.18</td><td>§2 of this doc</td></tr>
+    <tr><td>2</td><td>Does the matrix in §3 match what's actually granted at runtime?</td><td>A.5.15</td><td>Unit tests: <code>backend/__tests__/permissions.test.js</code></td></tr>
+    <tr><td>3</td><td>Are approval-class actions (invoice approve, RFQ award) protected by SoD?</td><td>A.5.3</td><td>§5 + <code>SOD_RULES</code> in <code>shared/permissions.js</code></td></tr>
+    <tr><td>4</td><td>Where SoD is bypassed, is there a compensating control?</td><td>A.5.3 + A.8.15</td><td>§5 (bypass boxes) + §9 (audit log)</td></tr>
+    <tr><td>5</td><td>Can a customer access another customer's records by guessing IDs?</td><td>A.8.3 / OWASP API1</td><td>§7 (customer-scope check)</td></tr>
+    <tr><td>6</td><td>Is admin only used for cases no tiered role fits?</td><td>A.8.2</td><td>§4 (admin warning box)</td></tr>
+    <tr><td>7</td><td>Can a sales officer see invoices they did not create?</td><td>A.8.3</td><td>Matrix: <code>invoice.read.own</code> only</td></tr>
+    <tr><td>8</td><td>Is every privileged mutation logged with actor email + before/after?</td><td>A.8.15 + A.5.34</td><td>§9 (<code>auditMiddleware</code>)</td></tr>
+    <tr><td>9</td><td>If a procurement officer leaves the company, is there a documented hand-over path?</td><td>A.5.11 + A.6.5</td><td>Admin reassigns PRs via <code>pr.assign</code></td></tr>
+    <tr><td>10</td><td>Are legacy roles in old JWTs handled safely after the tiered migration?</td><td>A.5.16</td><td>§2 (callout) + <code>legacyRoleToTiered()</code></td></tr>
+  </tbody>
+</table>
+
+<!-- ──────────────────────────────────────────────────────────────── -->
+
+<div class="footer-note">
+  <p>This document is generated from the runtime permission catalogue. To verify it, run:</p>
+  <p><code>node --test backend/__tests__/permissions.test.js</code></p>
+  <p>All 25 permission unit tests must pass. If they do not, the matrix above is wrong — fix the catalogue or the tests, never the other way around.</p>
+  <p style="margin-top:8pt"><strong>Document owner:</strong> IT Security / app maintainer &nbsp;·&nbsp; <strong>Review cadence:</strong> on every role / action change, and at minimum annually for the ISO 27001 surveillance audit.</p>
+</div>
+
+</body>
+</html>

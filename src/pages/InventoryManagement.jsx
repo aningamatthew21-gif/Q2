@@ -61,7 +61,16 @@ const InventoryManagement = ({ navigateTo, userId }) => {
                 try {
                     const response = await api.get(`/inventory/${itemToSave.id}`);
                     if (response.success) existingItem = response.data;
-                } catch (error) { console.error("Error fetching existing item:", error); }
+                } catch (error) {
+                    // INTENTIONAL silent fallback: the existingItem fetch is
+                    // ONLY used to enrich the audit log with the prior
+                    // stockBefore / priceBefore values (see `changes` object
+                    // below). If we can't fetch it, the save still works;
+                    // the audit row just lacks the before-snapshot. Log at
+                    // warn level so devs see it during smoke tests without
+                    // it looking like an error.
+                    console.warn('[InventoryManagement] Could not fetch existing item for audit-diff baseline (save will proceed without before-snapshot):', error?.message);
+                }
             }
 
             if (itemToSave.id) {

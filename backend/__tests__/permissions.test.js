@@ -177,11 +177,46 @@ test('SoD invoice.approve.finance: approver must NOT be creator or salesperson',
   assert.strictEqual(rule.check({ email: 'eve@x.com'   }, invoice), true);
 });
 
-test('SoD rfq.approve.award: approver must NOT be the officer who recommended', () => {
+test('SoD rfq.approve.award: approver must NOT be the officer who recommended (unless role bypass)', () => {
   const rule = SOD_RULES['rfq.approve.award'];
   const rfq = { recommendedBy: 'alice@x.com' };
-  assert.strictEqual(rule.check({ email: 'alice@x.com' }, rfq), false);
-  assert.strictEqual(rule.check({ email: 'eve@x.com'   }, rfq), true);
+  // Same actor with officer role: SoD denies (the core invariant)
+  assert.strictEqual(rule.check({ email: 'alice@x.com', role: 'procurement_officer' }, rfq), false);
+  // Third party with officer role: allowed
+  assert.strictEqual(rule.check({ email: 'eve@x.com',   role: 'procurement_officer' }, rfq), true);
+  // Role-based bypass (ISO 27001 A.5.3 — audit log compensates):
+  //   admin, procurement_head (domain authority), finance_head (cross-dept) all bypass.
+  assert.strictEqual(rule.check({ email: 'alice@x.com', role: 'admin' },             rfq), true,  'admin self-award allowed (role bypass)');
+  assert.strictEqual(rule.check({ email: 'alice@x.com', role: 'procurement_head' },  rfq), true,  'procurement_head self-award allowed (domain authority)');
+  assert.strictEqual(rule.check({ email: 'alice@x.com', role: 'finance_head' },      rfq), true,  'finance_head self-award allowed (parity with other 3 SoDs)');
+});
+
+test('SoD: admin role bypasses every SoD rule (defensive regression — closes "no admin restrictions" requirement)', () => {
+  // If a future contributor accidentally drops the admin bypass on any
+  // SoD rule, this test catches it. The bypass is a documented design
+  // choice under ISO 27001 A.5.3 with the audit log as compensating control.
+  const adminSelf = { email: 'alice@x.com', role: 'admin' };
+  assert.strictEqual(SOD_RULES['invoice.approve.sales'].check(adminSelf, { createdBy: 'alice@x.com', salesPersonId: 'alice@x.com' }), true, 'admin bypasses invoice.approve.sales');
+  assert.strictEqual(SOD_RULES['invoice.approve.finance'].check(adminSelf, { createdBy: 'alice@x.com', salesPersonId: 'alice@x.com' }), true, 'admin bypasses invoice.approve.finance');
+  assert.strictEqual(SOD_RULES['rfq.approve.award'].check(adminSelf, { recommendedBy: 'alice@x.com' }), true, 'admin bypasses rfq.approve.award');
+  assert.strictEqual(SOD_RULES['invoice.customer_action'].check(adminSelf, { sentBy: 'alice@x.com' }), true, 'admin bypasses invoice.customer_action');
+});
+
+test('can(): sales_head has invoice.read.all (broad ERP read for sales pipeline)', () => {
+  // After the ERP-style read relaxation, sales_head holds broad read so
+  // the AllInvoices page nav entry (PAGE_PERMISSIONS.invoices = invoice.read.all)
+  // appears for them. Replaces the legacy dead-code invoice.read.team grant.
+  assert.strictEqual(can(ROLES.SALES_HEAD, 'invoice.read.all'), true);
+});
+
+test('can(): sales_officer does NOT have invoice.read.all (page gate stays at .own)', () => {
+  // The backend list endpoint returns all invoices to any authenticated
+  // internal user (broad-read ERP pattern), but the AllInvoices PAGE
+  // is still gated at .read.all so sales_officer's nav surface stays
+  // scoped to MyInvoices. Future contributor who grants .read.all to
+  // sales_officer would silently widen the page-permission surface;
+  // this test makes that change visible.
+  assert.strictEqual(can(ROLES.SALES_OFFICER, 'invoice.read.all'), false);
 });
 
 test('SoD invoice.customer_action: actor must NOT be the user who sent the invoice', () => {
@@ -189,6 +224,22 @@ test('SoD invoice.customer_action: actor must NOT be the user who sent the invoi
   const invoice = { sentBy: 'alice@x.com' };
   assert.strictEqual(rule.check({ email: 'alice@x.com' }, invoice), false);
   assert.strictEqual(rule.check({ email: 'eve@x.com'   }, invoice), true);
+});
+
+test('Error Monitor: system.errors.read is admin-only (no other role)', () => {
+  // EH-4 Error Monitor page is gated by `system.errors.read`. Only admin
+  // should hold it on day one; if a future contributor accidentally grants
+  // it to another role (e.g. finance_head), this test catches the
+  // surface widening — admin override on observability is intentional;
+  // delegation to support tier is a deliberate decision, not a drift.
+  assert.strictEqual(can(ROLES.ADMIN,               'system.errors.read'), true);
+  assert.strictEqual(can(ROLES.FINANCE_HEAD,        'system.errors.read'), false);
+  assert.strictEqual(can(ROLES.FINANCE_OFFICER,     'system.errors.read'), false);
+  assert.strictEqual(can(ROLES.SALES_HEAD,          'system.errors.read'), false);
+  assert.strictEqual(can(ROLES.SALES_OFFICER,       'system.errors.read'), false);
+  assert.strictEqual(can(ROLES.PROCUREMENT_HEAD,    'system.errors.read'), false);
+  assert.strictEqual(can(ROLES.PROCUREMENT_OFFICER, 'system.errors.read'), false);
+  assert.strictEqual(can(ROLES.CUSTOMER,            'system.errors.read'), false);
 });
 
 test('SoD: missing user or entity returns false (deny by default)', () => {

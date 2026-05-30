@@ -7,6 +7,7 @@ import Card, { CardHead, CardBody } from '../../../components/v2/Card';
 import { SortableHeader, useSortable } from '../../../components/v2';
 import { useApp } from '../../../context/AppContext';
 import { exportReport } from '../../../services/ReportExportService';
+import { fmtMoney } from '../../../utils/format';   // SP3-M5
 import {
     ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip
 } from 'recharts';
@@ -22,8 +23,6 @@ import {
  *
  * Backend: GET /api/reports/finance/bad-debt-provision?asOfDate=
  */
-
-const fmtMoney = (v) => Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const BadDebtProvisionReport = () => {
     const { navigate } = useApp();

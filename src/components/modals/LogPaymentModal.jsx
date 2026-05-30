@@ -39,6 +39,7 @@ import api from '../../api';
 import Dialog from '../v2/Dialog';
 import Button from '../common/Button';
 import Icon from '../common/Icon';
+import Label from '../v2/Label';
 import { useRealtimeCustomers } from '../../hooks/useRealtimeCustomers';
 
 const PAYMENT_METHODS = [
@@ -350,7 +351,7 @@ const LogPaymentModal = ({
                         <div className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
                             {/* Customer + Invoice — read-only chips if pre-selected, comboboxes otherwise */}
                             <div className="col-span-2">
-                                <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Customer</label>
+                                <Label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1" required={!(invoice && invoice.id)}>Customer</Label>
                                 {invoice && invoice.id ? (
                                     <div className="p-2 bg-white border border-gray-200 rounded text-sm font-medium text-gray-800 truncate">
                                         {invoice.customerName || invoice.customerId || '—'}
@@ -368,7 +369,7 @@ const LogPaymentModal = ({
                                 )}
                             </div>
                             <div className="col-span-2">
-                                <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Invoice</label>
+                                <Label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1" required={!(invoice && invoice.id)}>Invoice</Label>
                                 {invoice && invoice.id ? (
                                     <div className="p-2 bg-white border border-gray-200 rounded text-sm font-mono text-gray-800 truncate">
                                         {invoice.invoiceNumber || invoice.id}
@@ -387,7 +388,7 @@ const LogPaymentModal = ({
                                 )}
                             </div>
                             <div>
-                                <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Date</label>
+                                <Label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1" required>Date</Label>
                                 <input
                                     type="date"
                                     value={paymentDate}
@@ -396,7 +397,7 @@ const LogPaymentModal = ({
                                 />
                             </div>
                             <div>
-                                <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Method</label>
+                                <Label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1" required>Method</Label>
                                 <select
                                     value={method}
                                     onChange={(e) => setMethod(e.target.value)}
@@ -443,9 +444,9 @@ const LogPaymentModal = ({
                     {/* ── Amount received row (own emphasized strip) ────────── */}
                     <div className="flex items-end gap-4 bg-white border border-blue-200 rounded p-3">
                         <div className="flex-1">
-                            <label className="block text-[10px] font-semibold text-blue-700 uppercase tracking-wide mb-1">
+                            <Label className="block text-[10px] font-semibold text-blue-700 uppercase tracking-wide mb-1" required>
                                 Amount Received {workingInvoice && `(${workingInvoice.currency || 'GHS'})`}
-                            </label>
+                            </Label>
                             <input
                                 type="number"
                                 step="0.01"

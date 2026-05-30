@@ -11,6 +11,8 @@ const {
   sodCheckRunner
 } = require('../middleware/authMiddleware');
 const { can } = require('../../shared/permissions');
+const { isAllowedInvoiceTransition, isInvoiceTerminal, areInvoiceEditsFrozen } = require('../../shared/statuses');
+const { apiError } = require('../utils/apiError');
 const { emitToAll } = require('../utils/socketEmitter');
 const { notify } = require('../services/notificationService');
 
@@ -72,7 +74,7 @@ function computeDueDate(invoiceDateStr, daysOffset) {
  * Supports pagination and filtering
  */
 router.get('/', catchAsync(async (req, res) => {
-  const { status, customerId, createdBy, startDate, endDate } = req.query;
+  const { status, customerId, createdBy, startDate, endDate, month } = req.query;
   // OWASP API4:2023 — Unrestricted Resource Consumption. Hard-cap the
   // limit at 1000 so ?limit=999999 can't sweep the whole invoice table.
   // Default 1000 preserves prior behavior; max 1000 prevents abuse.
@@ -86,16 +88,30 @@ router.get('/', catchAsync(async (req, res) => {
   let sql = "SELECT * FROM QA_INVOICES WHERE (IS_DELETED IS NULL OR IS_DELETED = 'N')";
   const binds = {};
 
-  // SCOPE FILTER — a user without `invoice.read.all` (e.g. a sales_officer
-  // who only has `invoice.read.own`) must NEVER receive invoices they
-  // didn't create. The catalogue says officers are scoped to "own"; this
-  // line enforces it at the SQL boundary so a crafted GET can't widen the
-  // result. Server-side filter takes precedence over any client createdBy
-  // param to prevent scope-widening via query string.
-  if (!can(req.user.role, 'invoice.read.all')) {
-    sql += ' AND LOWER(CREATED_BY) = LOWER(:me)';
-    binds.me = req.user.email;
-  }
+  // ── READ SCOPE — ERP-style broad-read (2026-05-26) ─────────────────
+  // ISO/IEC 27001:2022 anchors: A.5.10 (Acceptable Use), A.5.12
+  // (Classification — invoice rows are Internal-Use within the trusted
+  // staff boundary), A.5.15 (Access Control — broad read with narrow
+  // write is the documented policy), A.8.3 (Information Access
+  // Restriction — restriction "in accordance with the access control
+  // policy", which here authorises broad internal visibility).
+  //
+  // Any authenticated internal user reaching this route receives the
+  // full list — matching how `routes/purchaseRequisitions.js` and
+  // `routes/rfqs.js` have always behaved (the procurement workflow has
+  // always been ERP-style). This closes the cross-role chokepoint where
+  // a finance_head-created quote was silently invisible to the
+  // sales_officer expected to send it.
+  //
+  // The explicit `?createdBy=` filter below still works — used by the
+  // SalesAnalyticsDashboard "scope to own" toggle and the customer
+  // portal hook to narrow on demand. WRITE / APPROVE / state-transition
+  // gates further down the file remain unchanged (broad read != broad
+  // write). Customer role never reaches this route — they use the
+  // dedicated portal endpoints with record-level scoping.
+  //
+  // Compensating control: auditMiddleware records every mutation with
+  // actor email + before/after to QA_AUDIT_LOGS (A.8.15 Logging).
 
   // Support single or multiple statuses (array or comma-separated string)
   if (status) {
@@ -120,13 +136,57 @@ router.get('/', catchAsync(async (req, res) => {
     sql += ' AND CUSTOMER_ID = :cid';
     binds.cid = customerId;
   }
-  if (startDate) {
-    sql += ' AND INVOICE_DATE >= :sd';
-    binds.sd = startDate;
+  // ── DATE-RANGE FILTER ─────────────────────────────────────────────
+  // INVOICE_DATE is VARCHAR2(20) in the legacy schema and stores values
+  // in MULTIPLE formats depending on which version of the frontend
+  // created the row:
+  //   - "5/26/2026"            (M/D/YYYY  — earlier UI)
+  //   - "2026-05-26"           (YYYY-MM-DD — ISO, current UI)
+  //   - "2026-05-26T10:30:00Z" (ISO with time — Module 5 imports)
+  // A naive `INVOICE_DATE >= '2026-01-01'` string comparison fails for
+  // the M/D/YYYY format because character-wise '5' > '2' on the upper
+  // bound (the original Year/Month filter bug surfaced here in May 2026).
+  //
+  // Fix: parse INVOICE_DATE to a real Oracle DATE on the fly using
+  // TO_DATE(... DEFAULT NULL ON CONVERSION ERROR) — Oracle 12.2+
+  // built-in that returns NULL instead of throwing when the value
+  // doesn't match the format mask. COALESCE across the three formats
+  // we know we've stored. Compare against the bind window after both
+  // sides are real DATEs. NULL rows (un-parseable garbage) drop out
+  // of the filter as expected.
+  if (startDate || endDate) {
+    sql += `
+      AND COALESCE(
+        TO_DATE(INVOICE_DATE DEFAULT NULL ON CONVERSION ERROR, 'YYYY-MM-DD'),
+        TO_DATE(INVOICE_DATE DEFAULT NULL ON CONVERSION ERROR, 'MM/DD/YYYY'),
+        TO_DATE(INVOICE_DATE DEFAULT NULL ON CONVERSION ERROR, 'YYYY-MM-DD"T"HH24:MI:SS')
+      ) BETWEEN
+        TO_DATE(:sd, 'YYYY-MM-DD')
+        AND TO_DATE(:ed, 'YYYY-MM-DD')`;
+    // Default endpoints (1900-01-01 / 2999-12-31) so a one-sided filter
+    // still works without rewriting the SQL — Oracle's BETWEEN is
+    // inclusive both ends.
+    binds.sd = startDate || '1900-01-01';
+    binds.ed = endDate   || '2999-12-31';
   }
-  if (endDate) {
-    sql += ' AND INVOICE_DATE <= :ed';
-    binds.ed = endDate;
+
+  // ── MONTH-ONLY FILTER ────────────────────────────────────────────
+  // Used by the AllInvoices page when the user picks a month but
+  // leaves year on "All years" (e.g. "show me every July across
+  // history"). The frontend sends ?month=07. We extract the month
+  // from the parsed INVOICE_DATE and compare. Whitelist to 01..12 so
+  // a malformed bind can't smuggle anything strange into TO_CHAR.
+  if (month && /^(0[1-9]|1[0-2])$/.test(month)) {
+    sql += `
+      AND TO_CHAR(
+        COALESCE(
+          TO_DATE(INVOICE_DATE DEFAULT NULL ON CONVERSION ERROR, 'YYYY-MM-DD'),
+          TO_DATE(INVOICE_DATE DEFAULT NULL ON CONVERSION ERROR, 'MM/DD/YYYY'),
+          TO_DATE(INVOICE_DATE DEFAULT NULL ON CONVERSION ERROR, 'YYYY-MM-DD"T"HH24:MI:SS')
+        ),
+        'MM'
+      ) = :mo`;
+    binds.mo = month;
   }
 
   // Add ordering and pagination
@@ -278,21 +338,22 @@ router.get('/:id', catchAsync(async (req, res) => {
 
   const row = result.rows[0];
 
-  // OWNERSHIP CHECK — a user without `invoice.read.all` can only fetch
-  // invoices they created or are assigned as the salesperson on. Without
-  // this, any authenticated user could enumerate every invoice by id.
-  // Customers calling from the portal use a separate code path
-  // (portal.read.own) and are not allowed here at all.
-  if (!can(req.user.role, 'invoice.read.all')) {
-    const me = String(req.user.email || '').toLowerCase();
-    const createdBy   = String(row.CREATED_BY || '').toLowerCase();
-    const salesperson = String(row.SALESPERSON_ID || '').toLowerCase();
-    if (me !== createdBy && me !== salesperson) {
-      // Return 404 (not 403) so attackers can't probe for the existence
-      // of invoices outside their scope.
-      return res.status(404).json({ success: false, error: 'Invoice not found' });
-    }
-  }
+  // ── DETAIL ACCESS — ERP-style broad-read (2026-05-26) ──────────────
+  // ISO/IEC 27001:2022 A.5.15 / A.8.3 — internal staff are authorised
+  // to view any invoice detail by id under the broad-read policy that
+  // governs the LIST endpoint above. The previous ownership 404 was a
+  // UX wall (clicking an invoice link in a notification produced an
+  // unhelpful 404 that looked like a missing record); it duplicated
+  // the SQL scope filter we just removed.
+  //
+  // Customers never reach this route — they use the dedicated portal
+  // endpoints with record-level scoping (still enforced).
+  // WRITE / state-transition gates further down keep approval power
+  // tightly scoped.
+  //
+  // Compensating control: auditMiddleware logs every GET-mutation path
+  // (state-change PUTs) — read access itself is not audit-logged but
+  // is bounded by the JWT auth on every request.
 
   const liRes = await execute(
     'SELECT * FROM QA_INVOICE_LINE_ITEMS WHERE INVOICE_ID = :id ORDER BY SORT_ORDER, LINE_ID',
@@ -712,6 +773,72 @@ router.put('/:id', catchAsync(async (req, res) => {
       sentBy:         row.APPROVED_BY    // who sent it to the customer = last approver
     };
 
+    // ── TRANSITION-MATRIX INTEGRITY GATE ────────────────────────────
+    // Standards anchor: ISO/IEC 27001:2022 A.5.3 (SoD) + A.8.32 (Change
+    // Management). Terminal documents (Paid, Customer Rejected, Rejected,
+    // Cancelled, Signed) must be immutable — reversal requires a separate
+    // credit-memo / reversal workflow, NOT an edit of the original.
+    //
+    // The matrix lives in shared/statuses.js so frontend and backend can
+    // never drift. The frontend hides invalid action buttons; this layer
+    // is the security net that catches direct-API attempts (curl, scripts,
+    // a crafted POST from a compromised browser).
+    //
+    // We only gate when a real transition is requested (newStatus differs
+    // from prevStatus). No-op writes pass through so other field updates
+    // (signature, balance, payment) continue to work.
+    if (newStatus && newStatus !== prevStatus) {
+      if (isInvoiceTerminal(prevStatus)) {
+        return apiError.send(res, 'E_CONFLICT_STATE',
+          `Invoice is in a finalized state (${prevStatus}) and cannot be modified. Use the reversal workflow if a correction is needed.`,
+          { http: 409 }
+        );
+      }
+      if (!isAllowedInvoiceTransition(prevStatus, newStatus)) {
+        return apiError.send(res, 'E_CONFLICT_STATE',
+          `Invalid state transition: "${prevStatus}" → "${newStatus}". This is not a permitted lifecycle step for this invoice.`,
+          { http: 409 }
+        );
+      }
+    }
+
+    // ── EDITS-FROZEN INTEGRITY GATE ─────────────────────────────────
+    // Once an invoice is Approved (or later), the LINE ITEMS, TAXES,
+    // CHARGES, and TOTALS are frozen — the document the approver signed
+    // off on must equal the document forever. The frontend disables the
+    // inputs; this is the security net for direct-API mutation attempts.
+    //
+    // We allow:
+    //   - Pure status changes (handled above)
+    //   - Signature attachment (the approver's own signature persistence)
+    //   - Payment / balance updates (these are the post-Approved lifecycle)
+    //   - customerActionAt / rejectionReason / lostToCompetitor fields
+    //     (customer-action metadata)
+    //
+    // We reject:
+    //   - taxes (array of {id, enabled, rate})
+    //   - taxBreakdown / taxConfiguration
+    //   - subtotal / total / taxes (aggregate)
+    //   - orderCharges (shipping / handling / discount)
+    //   - lineItems / items
+    //
+    // Line items have their own endpoint and ALSO get this gate on POST.
+    if (areInvoiceEditsFrozen(prevStatus)) {
+      const FROZEN_FIELDS = [
+        'taxes', 'taxBreakdown', 'taxConfiguration',
+        'subtotal', 'total', 'taxesTotal', 'totals',
+        'orderCharges', 'shipping', 'handling', 'discount',
+        'lineItems', 'items'
+      ];
+      const attemptedFrozen = FROZEN_FIELDS.filter(f => updates[f] !== undefined);
+      if (attemptedFrozen.length > 0) {
+        return apiError.send(res, 'E_CONFLICT_STATE',
+          `Invoice is in "${prevStatus}" state — line items, taxes, charges, and totals are frozen. Attempted to modify: ${attemptedFrozen.join(', ')}. Use the reversal workflow if a correction is needed.`,
+          { http: 409 }
+        );
+      }
+    }
+
     notifyCtx = {
       prevStatus,
       newStatus,
@@ -798,7 +925,28 @@ router.put('/:id', catchAsync(async (req, res) => {
     // the existing free-text path still works for legacy clients.
     rejectionReasonCode: 'REJECTION_REASON_CODE',
     lostToCompetitor:    'LOST_TO_COMPETITOR',
-    winReasonCode:       'WIN_REASON_CODE'
+    winReasonCode:       'WIN_REASON_CODE',
+    // ── Invoice-snapshot fields (the fix for the "approval drops the
+    //    taxes" bug) ──────────────────────────────────────────────────
+    // These ARE writable during the legitimate Pending Pricing /
+    // Pending Approval → Approved transition. Once status hits
+    // Approved (or any other frozen state), the EDITS_FROZEN gate
+    // higher up rejects the request before reaching this loop, so the
+    // snapshot is preserved exactly as it was at the moment of approval.
+    //
+    // Before this mapping existed, the frontend dutifully sent
+    // taxBreakdown / subtotal / total / currency / exchangeRate in the
+    // PUT body but the backend silently dropped them — only STATUS got
+    // updated. On reload the frozen-snapshot hydration path read back
+    // the empty/default TAX_BREAKDOWN and the checkboxes appeared
+    // unchecked, totals collapsed to the pre-tax gross. Audit-grade
+    // integrity demands the post-approval document equal the document
+    // the approver signed off on; this mapping makes that true.
+    subtotal:     'SUBTOTAL',
+    total:        'TOTAL',
+    taxesTotal:   'TAXES',         // aggregate tax amount for fast report roll-ups
+    currency:     'CURRENCY',
+    exchangeRate: 'EXCHANGE_RATE'
   };
 
   for (const [key, dbCol] of Object.entries(mappings)) {
@@ -816,11 +964,48 @@ router.put('/:id', catchAsync(async (req, res) => {
     binds.dueDate = updates.dueDate ? new Date(updates.dueDate) : null;
   }
 
+  // TAX_BREAKDOWN is a CLOB storing the JSON snapshot of every tax
+  // (id, name, rate, enabled, amount, on). Custom-handle so we
+  // JSON.stringify before binding — passing a raw object to oracledb
+  // would coerce to "[object Object]" and corrupt the column. Mirrors
+  // the INSERT path on line ~603.
+  if (updates.taxBreakdown !== undefined) {
+    sqlSets.push('TAX_BREAKDOWN = :taxBreakdownClob');
+    binds.taxBreakdownClob = JSON.stringify(updates.taxBreakdown || []);
+  }
+
   // Handle timestamp updates explicitly based on status transitions
   if (updates.status === 'Approved') {
     sqlSets.push('APPROVED_AT = SYSTIMESTAMP');
     sqlSets.push('APPROVED_BY = :approverId');
     binds.approverId = req.user.email;
+
+    // ── Mint the permanent APPROVED_INVOICE_ID from the standardized
+    //    numbering policy if not already minted. This replaces the
+    //    legacy frontend `generatePermanentId(sequence)` flow that
+    //    produced the `MIDSA-INV-null-…` bug when the counter API
+    //    returned null. Now the ID is auto-minted server-side from
+    //    QA_NUMBER_SEQUENCES → DOC_TYPE='INV'.
+    //
+    //    We only mint if updates.approvedInvoiceId wasn't explicitly
+    //    provided AND the existing row doesn't already have one.
+    //    Idempotent: re-approving (e.g. after sourcing-variance
+    //    reapprove) keeps the original number.
+    if (updates.approvedInvoiceId === undefined && !row.APPROVED_INVOICE_ID) {
+      try {
+        const { generateNumber } = require('../utils/numberGenerator');
+        const mintedId = await generateNumber('INV');
+        sqlSets.push('APPROVED_INVOICE_ID = :mintedApprovedId');
+        binds.mintedApprovedId = mintedId;
+      } catch (mintErr) {
+        /* eslint-disable no-console */
+        console.error('[invoice] APPROVED_INVOICE_ID mint failed:', mintErr.message);
+        /* eslint-enable no-console */
+        // Don't block approval if the numbering service is down — the
+        // raw INVOICE_ID still works as a fallback. Admin can re-mint
+        // later via a one-off SQL when the policy is fixed.
+      }
+    }
   } else if (updates.status === 'Rejected') {
     sqlSets.push('REJECTED_AT = SYSTIMESTAMP');
     sqlSets.push('REJECTED_BY = :approverId');

@@ -20,6 +20,7 @@ import React, { useEffect, useState } from 'react';
 import api from '../../api';
 import Dialog from '../v2/Dialog';
 import Button from '../common/Button';
+import Label from '../v2/Label';
 
 const ACTION_TYPES = [
     { value: 'CALL',            label: 'Phone call' },
@@ -110,7 +111,7 @@ const LogCollectionActionModal = ({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Action</label>
+                        <Label className="block text-xs font-medium text-gray-600 mb-1" required>Action</Label>
                         <select
                             value={actionType}
                             onChange={(e) => setActionType(e.target.value)}

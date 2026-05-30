@@ -180,15 +180,14 @@ const SalesInvoiceApproval = ({ navigateTo, userId }) => {
                     signedBy: userId
                 });
 
-                // Generate Permanent Invoice ID (same as SalesInvoiceReview)
-                try {
-                    const sequence = await getNextSequenceNumber();
-                    updatePayload.approvedInvoiceId = generatePermanentId(sequence);
-                    console.log('✅ Generated approvedInvoiceId:', updatePayload.approvedInvoiceId);
-                } catch (seqErr) {
-                    console.error('Failed to generate permanent ID:', seqErr);
-                    // Continue without permanent ID rather than blocking approval
-                }
+                // APPROVED_INVOICE_ID is now minted server-side from the
+                // standardized numbering policy (QA_NUMBER_SEQUENCES →
+                // DOC_TYPE='INV'). The legacy generatePermanentId()
+                // client-side flow produced the `MIDSA-INV-null-...`
+                // bug when the counter API returned null/undefined.
+                // Backend mints atomically with SELECT...FOR UPDATE so
+                // concurrent approvals can't collide. No-op here —
+                // backend handles it on status='Approved' transition.
 
                 // STOCK DECREMENT IS NOW SERVER-SIDE.
                 // The backend PUT /invoices/:id atomically decrements every

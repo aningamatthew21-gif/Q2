@@ -7,6 +7,7 @@ import Card, { CardHead, CardBody } from '../../../components/v2/Card';
 import { SortableHeader, useSortable } from '../../../components/v2';
 import { useApp } from '../../../context/AppContext';
 import { exportReport } from '../../../services/ReportExportService';
+import { fmtMoney } from '../../../utils/format';   // SP3-M5
 import {
     ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine
 } from 'recharts';
@@ -20,8 +21,6 @@ import {
  *
  * Backend: GET /api/reports/finance/dso?from=&to=
  */
-
-const fmtMoney = (v) => Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const DsoTrendReport = () => {
     const { navigate } = useApp();

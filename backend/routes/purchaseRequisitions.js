@@ -156,9 +156,13 @@ router.post('/', requirePermission('pr.create'), catchAsync(async (req, res) => 
   }
 
   const id = pr.id || `PR-${crypto.randomUUID()}`;
-  const seqRes = await execute('SELECT QA_PR_SEQ.NEXTVAL AS N FROM DUAL');
-  const seqNum = seqRes.rows[0].N;
-  const prNumber = `PR-${new Date().getFullYear()}-${String(seqNum).padStart(4, '0')}`;
+  // PR_NUMBER now sourced from the standardized numbering policy
+  // (QA_NUMBER_SEQUENCES → DOC_TYPE='PR'). Format defaults to
+  // MIDSA-PR-{MM-YYYY}-{NNNNN} but is admin-configurable.
+  // Legacy QA_PR_SEQ still exists for back-compat but is no longer
+  // the source of truth.
+  const { generateNumber } = require('../utils/numberGenerator');
+  const prNumber = await generateNumber('PR');
 
   await transaction(async (conn) => {
     await conn.execute(`

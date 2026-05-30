@@ -9,6 +9,7 @@ import SignaturesSettings from '../components/settings/SignaturesSettings';
 import PriceListSettings from '../components/settings/PriceListSettings';
 import CompanyDataSettings from '../components/settings/CompanyDataSettings';
 import WhtSettings from '../components/settings/WhtSettings';
+import Label from '../components/v2/Label';
 
 import { useActivityLog } from '../hooks/useActivityLog';
 import { usePrompt } from '../components/v2/PromptDialog';
@@ -263,7 +264,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
 
                                         {/* 2. Tax Name */}
                                         <div className="col-span-4">
-                                            <label className="text-xs text-gray-500 block mb-1">Name</label>
+                                            <Label className="text-xs text-gray-500 block mb-1" required>Name</Label>
                                             <input
                                                 type="text"
                                                 value={tax.name}
@@ -275,7 +276,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
 
                                         {/* 3. Rate Input (Unified Counting Applied) */}
                                         <div className="col-span-2">
-                                            <label className="text-xs text-gray-500 block mb-1">Rate (%)</label>
+                                            <Label className="text-xs text-gray-500 block mb-1" required>Rate (%)</Label>
                                             <input
                                                 type="number"
                                                 value={tax.rate}
@@ -349,7 +350,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                                 <div className="flex flex-col">
-                                    <label className="text-sm text-gray-600 mb-1">Month</label>
+                                    <Label className="text-sm text-gray-600 mb-1" required>Month</Label>
                                     <input
                                         type="month"
                                         value={rateMonth}
@@ -358,7 +359,7 @@ const TaxSettings = ({ navigateTo, userId, currentUser }) => {
                                     />
                                 </div>
                                 <div className="flex flex-col">
-                                    <label className="text-sm text-gray-600 mb-1">USD → GHS</label>
+                                    <Label className="text-sm text-gray-600 mb-1" required>USD → GHS</Label>
                                     <input
                                         type="number"
                                         step="0.0001"

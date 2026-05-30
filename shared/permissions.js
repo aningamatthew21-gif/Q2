@@ -117,8 +117,7 @@ export const ACTIONS = Object.freeze({
   'dashboard.sales.read':        'View sales dashboard',
   'quote.create':                'Create / edit a quote (draft)',
   'invoice.send.customer':       'Send approved invoice / quote to customer',
-  'invoice.read.own':            'View invoices I created',
-  'invoice.read.team':           'View invoices my team created',
+  'invoice.read.own':            'Open my Invoices page (broad-read under ERP model)',
   'invoice.approve.sales':       'Approve a quote pre-customer-send (sales head)',
   'invoice.reject.sales':        'Reject a quote pre-customer-send (sales head)',
   'invoice.customer_action':     'Mark accept / reject on behalf of the customer',
@@ -205,6 +204,8 @@ export const ACTIONS = Object.freeze({
   'user.impersonate':            'Act-as another user (audited)',
   'system.act_as_emergency':     'Emergency override (double-audited)',
   'system.invoice_counter.edit': 'Mint next invoice number (auto-increment on approval) or admin reset',
+  'system.errors.read':          'Open the Error Monitor (admin observability of QA_ERROR_LOG)',
+  'system.number_sequences.edit':'Edit document numbering policy (prefix, padding, reset frequency) for INV/PR/RFQ/GR',
 
   // ── Customer portal ────────────────────────────────────────
   'portal.read.own':             'View my own customer portal',
@@ -292,7 +293,11 @@ const FINANCE_HEAD_ACTIONS = [
   // window for officers is enforced server-side in collections.js;
   // head has no time restriction.
   // Signatures
-  'signature.manage'
+  'signature.manage',
+  // Document numbering policy — finance head + admin can edit prefix,
+  // padding, and reset frequency for INV/PR/RFQ/GR numbering. The
+  // counter values themselves are auto-managed by the generator.
+  'system.number_sequences.edit'
 ];
 
 const SALES_OFFICER_ACTIONS = [
@@ -314,7 +319,14 @@ const SALES_OFFICER_ACTIONS = [
 
 const SALES_HEAD_ACTIONS = [
   ...SALES_OFFICER_ACTIONS,
-  'invoice.read.team',
+  // Broad ERP-style read across the sales pipeline. Replaces the legacy
+  // 'invoice.read.team' grant (which the backend never wired into a SQL
+  // filter — it was effectively dead code). Under the ERP model the
+  // backend list endpoint returns all invoices to any authenticated
+  // internal user; this grant is what makes the AllInvoices page nav
+  // entry visible to sales_head (its PAGE_PERMISSIONS gate is
+  // 'invoice.read.all').
+  'invoice.read.all',
   'invoice.approve.sales',
   'invoice.reject.sales',
   'invoice.reapprove',
@@ -470,6 +482,8 @@ export const PAGE_PERMISSIONS = Object.freeze({
   // System
   auditTrail:                   'audit.read.own',
   userManagement:               'user.manage',
+  errorMonitor:                 'system.errors.read',
+  numberingSettings:            'system.number_sequences.edit',
 
   // Public — no gate
   login:                        null,
@@ -518,13 +532,33 @@ export const SOD_RULES = Object.freeze({
     description: 'RFQ award approval — approver must NOT be the procurement officer who recommended.',
     check: (user, rfq) => {
       if (!user?.email || !rfq) return false;
+      // Role-based SoD bypass (ISO/IEC 27001:2022 A.5.3): admin and the
+      // domain heads (procurement_head + finance_head) carry role-level
+      // authority to award regardless of who recommended. Compensating
+      // control is the immutable audit-log entry written by
+      // auditMiddleware to QA_AUDIT_LOGS (actor email + before/after),
+      // so a self-award is fully traceable; SoD just doesn't 403 it.
+      // Mirrors the bypass in invoice.approve.sales / .finance /
+      // .customer_action — closes the last admin-bypass gap so admins
+      // truly have no SoD restrictions anywhere.
+      if (user.role === 'admin' || user.role === 'finance_head' || user.role === 'procurement_head') return true;
       return user.email !== rfq.recommendedBy;
     }
   },
   'invoice.customer_action': {
-    description: 'Customer-accept on behalf — the internal user marking accept cannot be the same who sent it.',
+    description: 'Customer action on behalf — the internal user recording the customer\'s accept/reject decision cannot be the same who sent the invoice.',
     check: (user, invoice) => {
       if (!user?.email || !invoice) return false;
+      // Role-based SoD bypass (ISO/IEC 27001:2022 A.5.3): admin and
+      // finance_head carry role-level authority to record a customer's
+      // on-behalf accept/reject regardless of who sent the invoice — this
+      // is the common operational pattern when a customer confirms via
+      // phone/email and an internal user types the response. The
+      // compensating control is the immutable audit-log entry (auditMiddleware
+      // writes actor email + before/after to QA_AUDIT_LOGS), so the
+      // self-action remains fully traceable; SoD just doesn't 403 it.
+      // Mirrors the bypass already in invoice.approve.sales / .finance.
+      if (user.role === 'admin' || user.role === 'finance_head') return true;
       return user.email !== invoice.sentBy;
     }
   }

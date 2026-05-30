@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, FilePlus, Files, UserCheck, CheckCheck,
   ClipboardList, FileText, Factory, Boxes, Users, Tags,
-  History, Sliders, X, ShieldCheck, Wallet, PackageCheck, BarChart3
+  History, Sliders, X, ShieldCheck, Wallet, PackageCheck, BarChart3,
+  AlertOctagon,
+  Hash
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useApp } from '../../context/AppContext';
@@ -30,7 +32,7 @@ const ROLE_SECTIONS = {
     { items: [
       { page: 'salesDashboard',       label: 'Dashboard',     icon: LayoutDashboard },
       { page: 'quoting',              label: 'New Quote',     icon: FilePlus       },
-      { page: 'myInvoices',           label: 'My Invoices',   icon: UserCheck      },
+      { page: 'myInvoices',           label: 'Invoices',      icon: UserCheck      },
       { page: 'salesInvoiceApproval', label: 'Approvals',     icon: CheckCheck     },
       { page: 'salesPriceList',       label: 'Price List',    icon: Tags           },
       // Module 2 — sales head sees Collections (perm-gated below; officers
@@ -49,7 +51,7 @@ const ROLE_SECTIONS = {
     ]},
     { title: 'Invoices', items: [
       { page: 'invoices',             label: 'All invoices',   icon: Files          },
-      { page: 'myInvoices',           label: 'My invoices',    icon: UserCheck      },
+      { page: 'myInvoices',           label: 'Invoice workspace', icon: UserCheck   },
       { page: 'salesInvoiceApproval', label: 'Approvals',      icon: CheckCheck     },
       { page: 'quoting',              label: 'New Quote',      icon: FilePlus       },
       // Module 2 — Collections workbench
@@ -79,7 +81,11 @@ const ROLE_SECTIONS = {
       { page: 'procurementSettings', label: 'Procurement',   icon: Sliders        },
       { page: 'mySignatures',        label: 'My Signatures', icon: FileText       },
       { page: 'auditTrail',          label: 'Audit',         icon: History        },
-      { page: 'userManagement',      label: 'Users',         icon: ShieldCheck    }
+      { page: 'userManagement',      label: 'Users',         icon: ShieldCheck    },
+      // EH — admin Error Monitor (auto-hidden for non-admins by canOpenPage filter)
+      { page: 'errorMonitor',        label: 'Error Monitor', icon: AlertOctagon   },
+      // Document numbering policy (admin + finance_head; gated by canOpenPage)
+      { page: 'numberingSettings',   label: 'Numbering',     icon: Hash           }
     ]}
   ],
   procurement: [

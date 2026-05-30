@@ -7,6 +7,8 @@ import Card, { CardBody } from '../../../components/v2/Card';
 import { SortableHeader, useSortable } from '../../../components/v2';
 import { useApp } from '../../../context/AppContext';
 import { exportReport } from '../../../services/ReportExportService';
+// SP3-M5 — formatters live in src/utils/format.js (single source of truth)
+import { fmtMoney, fmtDate } from '../../../utils/format';
 import {
     ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell
 } from 'recharts';
@@ -38,8 +40,6 @@ const BUCKET_BADGE = {
     '90+':     'bg-red-50 text-red-800 border-red-200'
 };
 
-const fmtMoney = (v) => Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtDate  = (v) => (v ? new Date(v).toISOString().slice(0, 10) : '—');
 
 const ArAgingReport = () => {
     const { navigate } = useApp();

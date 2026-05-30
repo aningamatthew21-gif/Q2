@@ -22,6 +22,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import api from '../../api';
 import Dialog from '../v2/Dialog';
 import Button from '../common/Button';
+import Label from '../v2/Label';
 
 const RECEIPT_STATUSES = [
     { value: 'PENDING_QC',         label: 'Pending QC' },
@@ -172,7 +173,7 @@ const LogGoodsReceiptModal = ({
                 {/* Receipt entry */}
                 <div className="grid grid-cols-2 gap-3">
                     <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Received Date</label>
+                        <Label className="block text-xs font-medium text-gray-600 mb-1" required>Received Date</Label>
                         <input
                             type="date"
                             value={receivedDate}
@@ -191,9 +192,9 @@ const LogGoodsReceiptModal = ({
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                        <Label className="block text-xs font-medium text-gray-600 mb-1" required>
                             Qty Received {pr?.uom ? `(${pr.uom})` : ''}
-                        </label>
+                        </Label>
                         <input
                             type="number"
                             min="0"

@@ -178,7 +178,18 @@ const CollectionsWorkbench = ({ navigateTo }) => {
             if (unallocRes?.success) setUnallocated(unallocRes.data || []);
             if (actRes?.success)    setActions(actRes.data || []);
         } catch (err) {
+            // Top-level workbench load failure — distinct from the per-
+            // endpoint .catch(() => …) fallbacks above, which let
+            // individual panels degrade independently. If we land here,
+            // something broke OUTSIDE Promise.all (e.g. setState after
+            // unmount, JSON parse error). Surface so the user knows the
+            // page may be partially-broken rather than just empty.
             console.error('Collections workbench load failed:', err);
+            const detail = err?.response?.data?.error?.message || err?.message || 'Unknown error';
+            setActionNote({
+                type: 'error',
+                message: `Could not load Collections workbench — ${detail}. Some panels may be empty; refresh to retry.`
+            });
         } finally {
             setLoading(false);
         }

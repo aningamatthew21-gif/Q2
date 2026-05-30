@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import GlassModal from '../common/GlassModal';
 import Button from '../common/Button';
+import Label from '../v2/Label';
 
 const INPUT_CLASS = 'mt-1 w-full p-2 border border-line rounded-card focus:ring-2 focus:ring-primary focus:border-primary outline-none bg-surface';
 const LABEL_CLASS = 'text-sm font-medium text-ink-muted';
@@ -69,7 +70,7 @@ const CustomerModal = ({ customer, onSave, onClose }) => {
         >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
-                    <label className={LABEL_CLASS}>Customer Name</label>
+                    <Label className={LABEL_CLASS} required>Customer Name</Label>
                     <input type="text" name="name" value={formData.name} onChange={handleChange} className={INPUT_CLASS} />
                 </div>
                 <div>
@@ -77,7 +78,7 @@ const CustomerModal = ({ customer, onSave, onClose }) => {
                     <input type="text" name="contactPerson" value={formData.contactPerson} onChange={handleChange} className={INPUT_CLASS} />
                 </div>
                 <div>
-                    <label className={LABEL_CLASS}>Contact Email</label>
+                    <Label className={LABEL_CLASS} required>Contact Email</Label>
                     <input type="email" name="contactEmail" value={formData.contactEmail} onChange={handleChange} className={INPUT_CLASS} />
                 </div>
                 <div>

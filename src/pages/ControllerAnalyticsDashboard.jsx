@@ -345,7 +345,27 @@ const ControllerAnalyticsDashboard = ({ navigateTo, userEmail, currentUser }) =>
         animate="enter"
         className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-2"
       >
-        <ChartCard title="Monthly invoice statistics" subtitle="Recognized revenue (Customer Accepted + Paid)" height={300}>
+        <ChartCard
+          title="Monthly invoice statistics"
+          subtitle="Recognized revenue (Customer Accepted + Paid)"
+          height={300}
+          // (Refresh intentionally omitted — data is already live via the
+          // useRealtimeInvoices socket subscription; a manual refresh
+          // button would be a false affordance.)
+          // Tier-1: deep-link to the fuller DSO Trend report which drills
+          // into the same dataset with filters + per-month detail.
+          reportPage="reportDsoTrend"
+          // Tier-2: enable CSV download + View-as-table, using the same
+          // data shape the chart is rendering.
+          tableData={{
+            columns: [
+              { key: 'name',  label: 'Month' },
+              { key: 'total', label: 'Recognized revenue (GHS)', type: 'currency' }
+            ],
+            rows: invoiceData || []
+          }}
+          exportFilename="monthly-invoice-statistics"
+        >
           {invoicesLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="w-10 h-10 rounded-full border-2 border-n-100 border-t-accent animate-spin" />

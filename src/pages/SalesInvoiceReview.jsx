@@ -318,9 +318,10 @@ const SalesInvoiceReview = ({ navigateTo, userId, pageContext }) => {
                 updateData.approvedBy = userId;
                 updateData.taxConfiguration = taxes;
  
-                // Generate Permanent ID
-                const sequence = await getNextSequenceNumber();
-                updateData.approvedInvoiceId = generatePermanentId(sequence);
+                // APPROVED_INVOICE_ID is now minted server-side from
+                // QA_NUMBER_SEQUENCES (standardized numbering policy).
+                // See backend/routes/invoices.js PUT handler — atomic
+                // SELECT...FOR UPDATE so concurrent approvals can't collide.
 
                 // STOCK DECREMENT IS NOW SERVER-SIDE.
                 // The backend PUT /invoices/:id route atomically decrements

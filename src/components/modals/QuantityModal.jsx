@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import GlassModal from '../common/GlassModal';
 import Button from '../common/Button';
+import Label from '../v2/Label';
 
 const QuantityModal = ({ item, onClose, onConfirm }) => {
     const [quantity, setQuantity] = useState(''); // Start with an empty string
@@ -40,6 +41,7 @@ const QuantityModal = ({ item, onClose, onConfirm }) => {
             size="sm"
             footer={footer}
         >
+            <Label className="block text-sm font-medium text-ink-muted mb-1" required>Quantity</Label>
             <input
                 type="number"
                 value={quantity}

@@ -547,9 +547,10 @@ router.post('/', requirePermission('rfq.create'), catchAsync(async (req, res) =>
   }
 
   const id = `RFQ-${crypto.randomUUID()}`;
-  const seqRes = await execute('SELECT QA_RFQ_SEQ.NEXTVAL AS N FROM DUAL');
-  const seqNum = seqRes.rows[0].N;
-  const rfqNumber = `RFQ-${new Date().getFullYear()}-${String(seqNum).padStart(4, '0')}`;
+  // RFQ_NUMBER from standardized numbering policy. Legacy QA_RFQ_SEQ
+  // kept for back-compat but no longer the source of truth.
+  const { generateNumber } = require('../utils/numberGenerator');
+  const rfqNumber = await generateNumber('RFQ');
 
   // Pull the PR rows we need to project as line items
   const prRowsRes = await execute(

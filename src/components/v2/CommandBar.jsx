@@ -32,6 +32,12 @@ export default function CommandBar({ items = [], className = '' }) {
         if (it.spacer) {
           return <span key={i} className="flex-1" />;
         }
+        // Custom render slot — lets callers drop in bespoke controls
+        // (e.g. a stateful Columns chooser dropdown) without forking
+        // the CommandBar. Additive, zero impact on existing call sites.
+        if (typeof it.render === 'function') {
+          return <React.Fragment key={i}>{it.render()}</React.Fragment>;
+        }
         return <CommandButton key={i} {...it} />;
       })}
     </div>

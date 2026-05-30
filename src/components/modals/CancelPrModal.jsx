@@ -21,6 +21,7 @@ import React, { useEffect, useState } from 'react';
 import api from '../../api';
 import Dialog from '../v2/Dialog';
 import Button from '../common/Button';
+import Label from '../v2/Label';
 
 const CANCELLATION_REASONS = [
     { value: 'DUPLICATE',              label: 'Duplicate requisition' },
@@ -89,7 +90,7 @@ const CancelPrModal = ({ open, onClose, pr, onCancelled }) => {
                 )}
 
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Cancellation Reason</label>
+                    <Label className="block text-xs font-medium text-gray-600 mb-1" required>Cancellation Reason</Label>
                     <select
                         value={reason}
                         onChange={(e) => setReason(e.target.value)}
@@ -103,9 +104,9 @@ const CancelPrModal = ({ open, onClose, pr, onCancelled }) => {
                 </div>
 
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Notes {reason === 'OTHER' && <span className="text-red-600">*</span>}
-                    </label>
+                    <Label className="block text-xs font-medium text-gray-600 mb-1" required={reason === 'OTHER'}>
+                        Notes
+                    </Label>
                     <textarea
                         rows={3}
                         value={notes}

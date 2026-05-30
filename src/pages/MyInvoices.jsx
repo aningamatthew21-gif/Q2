@@ -46,7 +46,14 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
     const [taxesData, setTaxesData] = useState([]);
     const [taxesLoading, setTaxesLoading] = useState(true);
 
-    const { data: myInvoices, loading: invoicesLoading } = useRealtimeInvoices(userId);
+    // ERP-style broad read (2026-05-26): pass no userId so the backend
+    // returns every invoice this user is authorised to see (which under
+    // the new model is all of them). The existing tab / date / status
+    // filters below remain the primary navigation tools. Replaces the
+    // prior `useRealtimeInvoices(userId)` which narrowed the query to
+    // creator=me and silently hid cross-role workflow (e.g. a
+    // finance_head-authored quote queued for the sales_officer to send).
+    const { data: myInvoices, loading: invoicesLoading } = useRealtimeInvoices();
 
     useEffect(() => {
         const fetchSettings = async () => {
@@ -166,7 +173,16 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
             try {
                 const response = await api.get(`/invoices/${invoice.id}`);
                 if (response.success) completeInvoiceData = response.data;
-            } catch (error) { console.error('Error fetching complete invoice data:', error); }
+            } catch (error) {
+                // Preview falls back to the list-level data (which lacks
+                // line items + payment history). Warn the user so they
+                // don't think a stale preview is the source of truth.
+                console.warn('[MyInvoices] Could not fetch full invoice data for preview, falling back to list snapshot:', error?.message);
+                setNotification({
+                    type: 'error',
+                    message: 'Preview is showing partial data — we couldn\'t fetch the latest line items. ' + (error?.response?.data?.error?.message || error?.message || '')
+                });
+            }
             const taxConfig = completeInvoiceData.taxBreakdown || completeInvoiceData.taxConfiguration || taxes;
             
             // ... (keep currency conversion logic same) ...
@@ -200,7 +216,16 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
                         const customer = custRes.data;
                         customerData = { name: customer.name || completeInvoiceData.customerName, contactEmail: customer.contactEmail || completeInvoiceData.customerEmail || 'test@example.com', location: customer.location || '[CUSTOMER LOCATION]', poBox: customer.poBox || '[CUSTOMER P.O. BOX]', region: customer.region || '[REGION]', address: customer.address || '[ADDRESS]' };
                     }
-                } catch (error) { console.error('Error fetching customer data:', error); }
+                } catch (error) {
+                    // Falls back to placeholder customer fields ([CUSTOMER
+                    // LOCATION] etc.). Warn so the user notices before
+                    // sending an email with placeholder text.
+                    console.warn('[MyInvoices] Could not fetch customer record for preview, using placeholders:', error?.message);
+                    setNotification({
+                        type: 'error',
+                        message: 'Customer details could not be loaded — preview will show placeholder values. Refresh and try again.'
+                    });
+                }
             }
             if (!totals || Object.values(totals).some(val => isNaN(val) || !isFinite(val))) {
                 totals = { subtotal: subtotal, grandTotal: subtotal, shipping: 0, handling: 0, discount: 0, subtotalWithCharges: subtotal };
@@ -327,7 +352,19 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
         try {
             await api.put(`/invoices/${invoice.id}`, { status: 'Customer Accepted', customerActionAt: new Date() });
             log('INVOICE_ACTION', `Marked Invoice ${invoice.id} as Customer Accepted`, { documentId: invoice.id });
-        } catch (error) { console.error('Error marking accepted:', error); }
+            // ISO/IEC 25010 — User Error Protection: confirm the state change
+            // landed. Previously the click was silent on success too, so users
+            // could not tell whether the action took effect.
+            setNotification({ type: 'success', message: `Invoice ${invoice.approvedInvoiceId || invoice.id} marked as Customer Accepted.` });
+        } catch (error) {
+            // OWASP ASVS V11.1.7 + ISO/IEC 25010 — never swallow errors from
+            // privileged operations. Surface the backend's specific reason
+            // (e.g. SoD violation, permission deny, validation) so the user
+            // can act on it instead of clicking again into the same wall.
+            console.error('Error marking accepted:', error);
+            const backendMsg = error?.response?.data?.error || error?.message || 'Failed to mark invoice as accepted. Please try again.';
+            setNotification({ type: 'error', message: backendMsg });
+        }
     };
 
     // Module 4 — open the controlled-vocabulary lost-deal modal. The
@@ -487,7 +524,7 @@ const MyInvoices = ({ navigateTo, userId, pageContext }) => {
                 requireReason
             />
             <PageHeader
-                title="My Invoices"
+                title="Invoices"
                 actions={
                     <Button variant="ghost" size="sm" onClick={() => navigateTo('salesDashboard')} leftIcon={<Icon id="arrow-left" />}>
                         Back to Dashboard

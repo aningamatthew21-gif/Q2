@@ -79,6 +79,12 @@ router.post('/approve', authMiddleware, requirePermission('invoice.approve.finan
 ```
 `requirePermission` optionally runs Separation of Duties checks via `SOD_RULES`.
 
+**Access-model posture — broad-read, narrow-write, SoD-gated-approve (the SAP / Oracle EBS ERP pattern):**
+- **READ** is broad. Backend list endpoints (`GET /api/invoices`, `GET /api/quotes`, `GET /api/purchase-requisitions`, `GET /api/rfqs`) return **everything** to any authenticated internal user. There is NO `CREATED_BY = me` SQL filter — historic versions had one and it silently broke cross-role workflows (e.g. finance_head authors a quote → sales_officer cannot see it to send). If you find yourself wanting to add such a filter, the right tool instead is an explicit `?createdBy=` or `?scope=mine` query param that the page opts into (see the SalesAnalyticsDashboard `scopeToOwn` toggle).
+- **WRITE / state transitions / approvals** stay tightly gated through `requirePermission(...)` + `SOD_RULES`. These are the actual business controls.
+- **ADMIN** bypasses every SoD rule by design (audit log is the compensating control per ISO/IEC 27001:2022 A.5.3); `finance_head` also bypasses all four; `procurement_head` bypasses RFQ-award SoD. When adding a new SoD rule, include the `if (user.role === 'admin' || ...) return true;` bypass at the top — the existing 4 rules in `shared/permissions.js` are the canonical pattern.
+- **Customer role** is the only role with record-level scoping (enforced at `GET /api/customers/:id` lines 59-64). Don't touch this.
+
 ### Backend data layer (`backend/db.js`)
 
 Exports two helpers — use these everywhere, never grab a raw pool connection:
@@ -113,6 +119,25 @@ There are two generations of UI components:
 Prefer v2 components for new work. The app shell is fully v2; some pages still use v1 components internally.
 
 **Icon component** (`src/components/common/Icon.jsx`): maps FontAwesome IDs (e.g. `"trash"`, `"check-circle"`) to Lucide React components via `FA_TO_LUCIDE`. Unmapped IDs fall back to a FontAwesome `<i>` tag. Always use `<Icon id="..." />`, never import Lucide icons directly in pages.
+
+**Required-field labels** (`src/components/v2/Label.jsx` + `RequiredMark.jsx`):
+A drop-in `<label>` replacement that renders a red asterisk when `required` is set. Use it on any form field that the user must fill in:
+
+```jsx
+import Label from '../components/v2/Label';
+
+<Label className={LABEL_CLASS} required>Customer Name</Label>
+<input type="text" name="name" ... />
+```
+
+The `required` prop is **visual only** — it does NOT add the HTML `required` attribute or `aria-required` to the input. JS save handlers stay the source of truth for validation (deliberate blast-radius decision: visual cue without changing browser submit behaviour). If you want browser-blocking on empty submit, add `required aria-required="true"` to the input itself.
+
+Standards anchor: WCAG 3.3.2 (Labels or Instructions), ISO 9241-110 (Suitability for User Expectations). The asterisk is `aria-hidden="true"` because required-ness should be announced to screen readers via `aria-required` on the input, not by reading "*" aloud.
+
+Conventions for new forms:
+- Mark fields the save handler treats as required (e.g. `if (!formData.name) return`).
+- Do NOT mark optional/derived fields (auto-computed totals, "(optional)" addresses, etc.).
+- Use the wrapping `<Label required>...</Label>` form, not the bare `<RequiredMark />` (RequiredMark is exported for the rare cases where the asterisk goes inside a non-label element — e.g. a `<th>` column header).
 
 ### API client (`src/api.js`)
 

@@ -17,7 +17,8 @@ require('./utils/secretsCheck').enforce();
 
 const http = require('http');
 const { Server } = require('socket.io');
-const { initPool } = require('./db');
+const { initPool, ping: dbPing, poolStats: dbPoolStats } = require('./db');
+const pkg = require('./package.json');
 const { setIoInstance } = require('./utils/socketEmitter');
 const { startStalenessWatcher } = require('./jobs/stalenessWatcher');
 const { startNotificationWatcher } = require('./jobs/notificationWatcher');
@@ -51,7 +52,13 @@ const reasonsRoutes         = require('./routes/reasons');
 const reportsFinanceRoutes     = require('./routes/reports/finance');
 const reportsSalesRoutes       = require('./routes/reports/sales');
 const reportsProcurementRoutes = require('./routes/reports/procurement');
+// EH (Error Handling) — admin Error Monitor + frontend report sink
+const errorsRoutes             = require('./routes/errors');
+// Standardized document numbering (INV / PR / RFQ / GR / MEMO)
+const numberSequencesRoutes    = require('./routes/numberSequences');
 const { auditMiddleware } = require('./middleware/auditMiddleware');
+// SP4-2 — structured JSON logging + per-request UUID correlation
+const { logger, requestIdMiddleware, httpAccessLog } = require('./utils/logger');
 
 // Global tax settings (can be updated via API)
 let globalTaxSettings = {
@@ -86,6 +93,14 @@ const getTaxContextForAI = () => {
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// SP4-2 — request-ID middleware runs FIRST so every downstream
+// middleware + handler + log line has the rid attached. AsyncLocalStorage
+// propagates it through nested awaits without manual threading.
+app.use(requestIdMiddleware);
+// One INFO line per finished request (status, method, path, durMs, bytes,
+// ip, ua). Skips /api/health to avoid filling the log with probe noise.
+app.use(httpAccessLog);
 
 // Security middleware
 app.use(helmet());
@@ -168,6 +183,10 @@ app.use('/api/reasons',           reasonsRoutes);
 app.use('/api/reports/finance',     reportsFinanceRoutes);
 app.use('/api/reports/sales',       reportsSalesRoutes);
 app.use('/api/reports/procurement', reportsProcurementRoutes);
+// EH — Error Monitor admin endpoints + frontend report sink
+app.use('/api/errors',              errorsRoutes);
+// Document-numbering settings (admin + finance_head)
+app.use('/api/number-sequences',    numberSequencesRoutes);
 
 // NOTE: auditMiddleware AND the rate limiters were previously declared HERE,
 // AFTER the route mounts. Because Express routers terminate their requests
@@ -1037,13 +1056,63 @@ function extractNumber(text, keywords) {
   return null;
 }
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    provider: aiProvider.provider,
-    timestamp: new Date().toISOString()
-  });
+// ─────────────────────────────────────────────────────────────────────
+// /api/health — production-grade liveness + readiness probe.
+//
+// Standards anchor:
+//   - ISO/IEC 27001:2022 A.5.30 (ICT readiness for business continuity)
+//   - ISO/IEC 27001:2022 A.8.16 (Monitoring activities)
+//   - 12-factor app §IX (Disposability — fast startup + graceful shutdown
+//     observability)
+//   - Kubernetes / Docker HEALTHCHECK semantics (200 = ready, 503 = not)
+//
+// Two-mode endpoint:
+//   GET /api/health        → cheap liveness probe (no DB call). Returns
+//                            200 if the Node process is responsive.
+//                            Use for K8s liveness, Docker restart probe.
+//   GET /api/health?deep=1 → readiness probe. Also pings DB with 1s
+//                            timeout + returns pool stats. Returns 503
+//                            if DB is unreachable. Use for K8s readiness
+//                            + load-balancer health checks.
+//
+// Public — no auth required (probes need to work without a token), but
+// the response contains no PII or secrets. Version + uptime are safe
+// to expose; pool counters are useful diagnostics, not a vulnerability.
+// ─────────────────────────────────────────────────────────────────────
+app.get('/api/health', async (req, res) => {
+  const startedAt = Date.now();
+  const deep = req.query.deep === '1' || req.query.deep === 'true';
+
+  // ── Cheap liveness probe — always cheap, never blocks ──────────────
+  const body = {
+    status:    'healthy',
+    service:   pkg.name || 'midsa-quote-app-backend',
+    version:   pkg.version || '0.0.0',
+    nodeEnv:   process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    uptimeSec: Math.round(process.uptime()),
+    memoryMB:  Math.round(process.memoryUsage().rss / 1024 / 1024),
+    provider:  aiProvider?.provider || null
+  };
+
+  if (!deep) {
+    return res.json(body);
+  }
+
+  // ── Readiness probe — also checks DB connectivity ──────────────────
+  // Bounded by db.ping()'s internal 1-second timeout so this endpoint
+  // can never exceed ~1.5s total even when Oracle is wedged.
+  const dbHealthy = await dbPing(1000);
+  body.db = {
+    reachable:    dbHealthy,
+    poolStats:    dbPoolStats(),
+    probeMs:      Date.now() - startedAt
+  };
+  if (!dbHealthy) {
+    body.status = 'unhealthy';
+    return res.status(503).json(body);   // 503 = LB takes us out of rotation
+  }
+  return res.json(body);
 });
 
 // Tax settings endpoints

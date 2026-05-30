@@ -16,6 +16,12 @@ import { usePrompt } from '../components/v2/PromptDialog';
 import { logActivity } from '../utils/logger';
 import { isFinanceController, resolveReturnPage } from '../utils/roles';
 import { can } from '../utils/permissions';
+import {
+    INVOICE_STATUS,
+    INVOICE_TRANSITIONS,
+    isInvoiceTerminal,
+    areInvoiceEditsFrozen
+} from '../../shared/statuses';
 
 const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
     const { invoiceId } = pageContext || {};
@@ -473,6 +479,11 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                 })),
                 subtotal: totals.subtotal,
                 total: totals.grandTotal,
+                // Aggregate tax amount (used by the TAXES column for fast
+                // reporting roll-ups — the per-tax detail lives in
+                // taxBreakdown). Sent so the backend doesn't have to
+                // re-derive it from total - subtotal - charges.
+                taxesTotal: Math.max(0, (totals.grandTotal || 0) - (totals.subtotalWithCharges || totals.subtotal || 0)),
                 orderCharges: orderCharges,
                 taxBreakdown: taxes,
                 currency: currency,
@@ -608,18 +619,81 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                     </div>
                 )}
 
-                <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                    {/* Item Selection */}
-                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-md">
-                        <h2 className="text-xl font-semibold text-gray-700 mb-4">Add Items to Invoice</h2>
-                        <input type="text" placeholder="Search inventory..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-4 pr-4 py-2 border rounded-md" />
-                        <div className="h-96 mt-4 overflow-y-auto border rounded-md">
-                            <table className="w-full text-left">
-                                <thead className="bg-gray-50 sticky top-0"><tr><th className="p-3 font-semibold text-sm">Product</th><th className="p-3 font-semibold text-sm text-right">Price</th></tr></thead>
-                                <tbody>{filteredInventory.map(item => (<tr key={item.id} onClick={() => !sourcingLocked && setAddingItem(item)} className={`border-b ${sourcingLocked ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`} title={sourcingLocked ? 'Quote is locked while procurement is sourcing.' : ''}><td className="p-3 font-medium">{item.name}</td><td className="p-3 text-right">{formatAmount(item.price)}</td></tr>))}</tbody>
-                            </table>
+                {/*
+                  ── EDITS-FROZEN BANNER + UNIFIED LOCK FLAG ────────────────
+                  Standards anchor: ISO/IEC 27001:2022 A.8.32 + ISO/IEC
+                  25010 Reliability. Once an invoice is Approved or later,
+                  the numbers the approver signed off on (and the customer
+                  is reviewing) must be immutable. The flag `editsFrozen`
+                  is consulted on every editable input below. The matching
+                  backend gate in routes/invoices.js PUT handler is the
+                  security net — this banner + disabled state is the UX.
+                */}
+                {(() => {
+                    const editsFrozen = areInvoiceEditsFrozen(invoice?.status);
+                    if (!editsFrozen) return null;
+                    return (
+                        <div className="bg-gray-100 border-l-4 border-gray-500 rounded-md p-4 mb-6 text-sm text-gray-800 flex items-start gap-2">
+                            <Icon id="lock" className="mt-0.5" />
+                            <div>
+                                <strong>Invoice frozen ({invoice?.status}).</strong> Line items, quantities,
+                                taxes, and order-level charges cannot be edited at this stage — they
+                                were committed when the invoice was approved and must match the
+                                document the customer received. To correct an error, use the
+                                reversal / credit-memo workflow (planned future feature) or ask an
+                                admin to soft-delete and re-issue.
+                            </div>
                         </div>
-                    </div>
+                    );
+                })()}
+
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                    {/* Item Selection — locked when invoice is frozen (Approved+) OR
+                        when procurement is sourcing. Both flags converge into
+                        `addItemsLocked` so the disabled state covers both cases
+                        with one specific tooltip message. */}
+                    {(() => {
+                        const editsFrozen = areInvoiceEditsFrozen(invoice?.status);
+                        const addItemsLocked = sourcingLocked || editsFrozen;
+                        const lockReason = editsFrozen
+                            ? `Invoice is ${invoice?.status} — items are frozen.`
+                            : sourcingLocked
+                                ? 'Quote is locked while procurement is sourcing.'
+                                : '';
+                        return (
+                            <div className={`lg:col-span-2 bg-white p-6 rounded-xl shadow-md ${addItemsLocked ? 'opacity-75' : ''}`}>
+                                <h2 className="text-xl font-semibold text-gray-700 mb-4">
+                                    Add Items to Invoice
+                                    {addItemsLocked && <span className="ml-2 text-xs text-gray-500 font-normal">(locked)</span>}
+                                </h2>
+                                <input
+                                    type="text"
+                                    placeholder="Search inventory..."
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    disabled={addItemsLocked}
+                                    title={lockReason}
+                                    className="w-full pl-4 pr-4 py-2 border rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                />
+                                <div className="h-96 mt-4 overflow-y-auto border rounded-md">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-gray-50 sticky top-0"><tr><th className="p-3 font-semibold text-sm">Product</th><th className="p-3 font-semibold text-sm text-right">Price</th></tr></thead>
+                                        <tbody>{filteredInventory.map(item => (
+                                            <tr
+                                                key={item.id}
+                                                onClick={() => !addItemsLocked && setAddingItem(item)}
+                                                className={`border-b ${addItemsLocked ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                                                title={addItemsLocked ? lockReason : ''}
+                                            >
+                                                <td className="p-3 font-medium">{item.name}</td>
+                                                <td className="p-3 text-right">{formatAmount(item.price)}</td>
+                                            </tr>
+                                        ))}</tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* Invoice Details */}
                     <div className="lg:col-span-3 bg-white p-6 rounded-xl shadow-md">
@@ -698,7 +772,15 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                                     return (
                                         <tr key={item.id} className="border-b">
                                             <td className="p-2 text-sm font-medium">{item.name} <br/> {item.type === 'sourced' && <div className='text-sm text-blue-400'>({item.description})</div>} </td>
-                                            <td className="p-1"><input type="number" value={item.quantity} onChange={e => handleUpdateItem(item.id, 'quantity', e.target.value)} className="w-16 text-center border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed" min="0" disabled={sourcingLocked} /></td>
+                                            <td className="p-1"><input
+                                                type="number"
+                                                value={item.quantity}
+                                                onChange={e => handleUpdateItem(item.id, 'quantity', e.target.value)}
+                                                className="w-16 text-center border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                                min="0"
+                                                disabled={sourcingLocked || areInvoiceEditsFrozen(invoice?.status)}
+                                                title={areInvoiceEditsFrozen(invoice?.status) ? `Invoice is ${invoice?.status} — quantity is frozen.` : sourcingLocked ? 'Quote is locked while procurement is sourcing.' : ''}
+                                            /></td>
                                             <td className="p-1 text-right text-sm font-medium">
                                                 {/* Logic: If it is Sourced AND I work the finance desk, allow editing */}
                                                 {item.type === 'sourced' && isFinanceController(currentUser?.role) ? (
@@ -721,7 +803,12 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                                                 )}
                                             </td>
                                             <td className="p-2 text-sm text-right font-medium">{formatAmount(itemTotal)}</td>
-                                            <td className="p-2 text-center"><button onClick={() => handleRequestRemoveItem(item)} disabled={sourcingLocked} className="text-red-500 hover:text-red-700 disabled:text-gray-300 disabled:cursor-not-allowed" title={sourcingLocked ? 'Locked: procurement is sourcing this quote.' : ''}><Icon id="trash-alt" /></button></td>
+                                            <td className="p-2 text-center"><button
+                                                onClick={() => handleRequestRemoveItem(item)}
+                                                disabled={sourcingLocked || areInvoiceEditsFrozen(invoice?.status)}
+                                                className="text-red-500 hover:text-red-700 disabled:text-gray-300 disabled:cursor-not-allowed"
+                                                title={areInvoiceEditsFrozen(invoice?.status) ? `Invoice is ${invoice?.status} — line items are frozen.` : sourcingLocked ? 'Locked: procurement is sourcing this quote.' : ''}
+                                            ><Icon id="trash-alt" /></button></td>
                                         </tr>
                                     );
                                 })}</tbody>
@@ -732,6 +819,8 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                         <div className="bg-white rounded-lg shadow p-6 mb-6">
                             <h3 className="text-lg font-semibold mb-4">Order Level Charges</h3>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Order-level charges — locked when invoice is frozen.
+                                    The locked title attribute tells the user why. */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Shipping</label>
                                     <input
@@ -742,7 +831,9 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                                             ...prev,
                                             shipping: parseFloat(e.target.value) || 0
                                         }))}
-                                        className="block w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        disabled={areInvoiceEditsFrozen(invoice?.status)}
+                                        title={areInvoiceEditsFrozen(invoice?.status) ? `Invoice is ${invoice?.status} — order charges are frozen.` : ''}
+                                        className="block w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                                     />
                                 </div>
                                 <div>
@@ -755,7 +846,9 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                                             ...prev,
                                             handling: parseFloat(e.target.value) || 0
                                         }))}
-                                        className="block w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        disabled={areInvoiceEditsFrozen(invoice?.status)}
+                                        title={areInvoiceEditsFrozen(invoice?.status) ? `Invoice is ${invoice?.status} — order charges are frozen.` : ''}
+                                        className="block w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                                     />
                                 </div>
                                 <div>
@@ -768,7 +861,9 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                                             ...prev,
                                             discount: parseFloat(e.target.value) || 0
                                         }))}
-                                        className="block w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        disabled={areInvoiceEditsFrozen(invoice?.status)}
+                                        title={areInvoiceEditsFrozen(invoice?.status) ? `Invoice is ${invoice?.status} — order charges are frozen.` : ''}
+                                        className="block w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                                     />
                                 </div>
                             </div>
@@ -796,18 +891,36 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                             <div>
                                 <h3 className="font-semibold mb-2">Taxes & Levies</h3>
                                 <div className="space-y-2">
-                                    {taxes.map(tax => (
-                                        <div key={tax.id} className="flex items-center justify-between text-sm">
-                                            <div className="flex items-center">
-                                                <input type="checkbox" checked={tax.enabled} onChange={e => handleTaxChange(tax.id, 'enabled', e.target.checked)} className="mr-3 h-4 w-4" />
-                                                <span className="font-medium">{tax.name}</span>
+                                    {taxes.map(tax => {
+                                        const taxLocked = areInvoiceEditsFrozen(invoice?.status);
+                                        const taxLockTitle = taxLocked ? `Invoice is ${invoice?.status} — taxes and rates are frozen.` : '';
+                                        return (
+                                            <div key={tax.id} className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={tax.enabled}
+                                                        onChange={e => handleTaxChange(tax.id, 'enabled', e.target.checked)}
+                                                        disabled={taxLocked}
+                                                        title={taxLockTitle}
+                                                        className="mr-3 h-4 w-4 disabled:cursor-not-allowed"
+                                                    />
+                                                    <span className={`font-medium ${taxLocked ? 'text-gray-500' : ''}`}>{tax.name}</span>
+                                                </div>
+                                                <div>
+                                                    <input
+                                                        type="number"
+                                                        value={tax.rate}
+                                                        onChange={e => handleTaxChange(tax.id, 'rate', e.target.value)}
+                                                        disabled={taxLocked}
+                                                        title={taxLockTitle}
+                                                        className="w-16 text-right p-1 border rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                                    />
+                                                    <span className="ml-1">%</span>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <input type="number" value={tax.rate} onChange={e => handleTaxChange(tax.id, 'rate', e.target.value)} className="w-16 text-right p-1 border rounded-md" />
-                                                <span className="ml-1">%</span>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
 
                                 <div className="mt-6 pt-4 border-t border-gray-200">
@@ -815,8 +928,13 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                                         <span className="font-semibold text-gray-700">Currency</span>
                                         <button
                                             onClick={toggleCurrency}
-                                            className={`relative inline-flex items-center h-6 w-12 rounded-full transition-colors duration-300 focus:outline-none ${currency === 'USD' ? 'bg-blue-600' : 'bg-gray-400'}`}
-                                            title="Toggle Currency"
+                                            disabled={areInvoiceEditsFrozen(invoice?.status)}
+                                            className={`relative inline-flex items-center h-6 w-12 rounded-full transition-colors duration-300 focus:outline-none ${
+                                                areInvoiceEditsFrozen(invoice?.status)
+                                                    ? 'bg-gray-300 cursor-not-allowed opacity-60'
+                                                    : currency === 'USD' ? 'bg-blue-600' : 'bg-gray-400'
+                                            }`}
+                                            title={areInvoiceEditsFrozen(invoice?.status) ? `Invoice is ${invoice?.status} — currency is frozen.` : 'Toggle Currency'}
                                         >
                                             <span
                                                 className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-300 ${currency === 'USD' ? 'translate-x-7' : 'translate-x-1'}`}
@@ -1069,48 +1187,164 @@ const InvoiceEditor = ({ navigateTo, pageContext, userId, currentUser }) => {
                             )}
                         </div>
 
-                        {/* Action Buttons */}
-                        <div className="mt-6 flex justify-end space-x-4">
-                            {/* If Draft, show Submit for Approval. If Pending Approval, show Approve/Reject */}
-                            {(invoice?.status === 'Draft' || !invoice?.status) ? (
-                                <button
-                                    onClick={() => handleApproval('Pending Approval')}
-                                    className="py-2 px-6 text-white bg-blue-600 rounded-md font-semibold hover:bg-blue-700"
-                                >
-                                    Submit for Approval
-                                </button>
-                            ) : (
-                                <>
-                                    <button
-                                        onClick={() => handleApproval('Rejected')}
-                                        className="py-2 px-6 text-white bg-red-600 rounded-md font-semibold hover:bg-red-700"
-                                    >
-                                        Reject Invoice
-                                    </button>
-                                    <button
-                                        onClick={() => handleApproval('Approved')}
-                                        disabled={!selectedSignature || sourcingBlocksApproval}
-                                        className={`py-2 px-6 text-white rounded-md font-semibold ${selectedSignature && !sourcingBlocksApproval
-                                            ? 'bg-green-600 hover:bg-green-700'
-                                            : 'bg-gray-400 cursor-not-allowed'
-                                            }`}
-                                        title={
-                                            sourcingBlocksApproval
-                                                ? 'Procurement is still sourcing this quote — approval unlocks once the RFQ is awarded.'
-                                                : selectedSignature
-                                                    ? 'Approve with selected signature'
-                                                    : 'Please select a signature first'
-                                        }
-                                    >
-                                        {sourcingBlocksApproval
-                                            ? 'Awaiting Sourcing'
-                                            : selectedSignature
-                                                ? 'Save & Approve'
-                                                : 'Select Signature First'}
-                                    </button>
-                                </>
-                            )}
-                        </div>
+                        {/* ── Action Buttons (matrix-driven) ──────────────
+                            Standards anchor: ISO/IEC 27001:2022 A.5.3 + A.8.32,
+                            ISO/IEC 25010 Reliability — Maturity.
+
+                            Three independent computed flags drive what renders:
+                              • isTerminal      — Paid/Rejected/Customer Rejected/
+                                                  Cancelled. Locked banner; NO actions.
+                              • isCustomerStage — Awaiting Acceptance. Customer's
+                                                  decision OR sales recording on
+                                                  behalf (gated by invoice.customer_action
+                                                  permission + SoD bypass).
+                              • allowedNext     — array of next-states from the
+                                                  shared TRANSITION_MATRIX. Decides
+                                                  which Approve/Reject/Submit buttons
+                                                  may even render.
+
+                            Backend enforces the same matrix at the API layer
+                            (routes/invoices.js PUT handler), so the UI hidden
+                            state is a UX layer, not a security layer. */}
+                        {(() => {
+                            const status        = invoice?.status;
+                            const isTerminal    = isInvoiceTerminal(status);
+                            const isCustomerStg = status === INVOICE_STATUS.AWAITING_ACCEPTANCE;
+                            const isDraft       = !status || status === INVOICE_STATUS.DRAFT;
+                            const allowedNext   = INVOICE_TRANSITIONS[status] || [];
+                            const canApprove    = allowedNext.includes(INVOICE_STATUS.APPROVED);
+                            const canReject     = allowedNext.includes(INVOICE_STATUS.REJECTED);
+                            // Permission gate for the "on-behalf" customer-action
+                            // flow. The same SoD rule (actor ≠ sentBy unless
+                            // admin/finance_head) we already shipped applies.
+                            const canCustomerAction = can(currentUser, 'invoice.customer_action')
+                                                   || currentUser?.role === 'admin';
+
+                            // 1. Terminal — locked banner, no actions
+                            if (isTerminal) {
+                                return (
+                                    <div className="mt-6 p-4 bg-gray-100 border border-gray-300 rounded-md flex items-center gap-3">
+                                        <Icon id="lock" className="text-gray-500 flex-shrink-0" />
+                                        <div className="flex-1">
+                                            <div className="font-semibold text-gray-800">This invoice is finalized ({status})</div>
+                                            <div className="text-sm text-gray-600 mt-0.5">
+                                                No further status changes can be made. If a correction is needed,
+                                                a reversal / credit-memo workflow (planned as a future feature) will
+                                                be required. In the interim, an admin can soft-delete and re-issue.
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            }
+
+                            // 2. Awaiting Acceptance — customer-action buttons
+                            if (isCustomerStg) {
+                                return (
+                                    <div className="mt-6 flex flex-col gap-3">
+                                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-900">
+                                            <Icon id="clock" className="inline mr-1.5" />
+                                            This invoice has been sent to the customer and is awaiting their decision.
+                                            You may record their response on their behalf below (e.g. if they confirm by phone or email).
+                                        </div>
+                                        <div className="flex justify-end space-x-4">
+                                            <button
+                                                onClick={() => handleApproval('Customer Rejected')}
+                                                disabled={!canCustomerAction}
+                                                title={!canCustomerAction ? 'You do not have permission to record customer decisions on behalf.' : 'Record that the customer rejected this invoice.'}
+                                                className={`py-2 px-6 text-white rounded-md font-semibold ${canCustomerAction ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-400 cursor-not-allowed'}`}
+                                            >
+                                                Mark Customer Rejected
+                                            </button>
+                                            <button
+                                                onClick={() => handleApproval('Customer Accepted')}
+                                                disabled={!canCustomerAction}
+                                                title={!canCustomerAction ? 'You do not have permission to record customer decisions on behalf.' : 'Record that the customer accepted this invoice.'}
+                                                className={`py-2 px-6 text-white rounded-md font-semibold ${canCustomerAction ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-400 cursor-not-allowed'}`}
+                                            >
+                                                Mark Customer Accepted
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            }
+
+                            // 3. Draft — Submit for Approval
+                            if (isDraft) {
+                                return (
+                                    <div className="mt-6 flex justify-end space-x-4">
+                                        <button
+                                            onClick={() => handleApproval('Pending Approval')}
+                                            className="py-2 px-6 text-white bg-blue-600 rounded-md font-semibold hover:bg-blue-700"
+                                        >
+                                            Submit for Approval
+                                        </button>
+                                    </div>
+                                );
+                            }
+
+                            // 4. Pending Pricing / Pending Approval — internal decision
+                            //    Show only the buttons the matrix permits. This is
+                            //    the fix for the original bug: an Approved invoice
+                            //    will fall through to (5) below with no buttons,
+                            //    because allowedNext = [Awaiting Acceptance,
+                            //    Pending Approval, Cancelled] — no Reject, no
+                            //    Approve.
+                            if (canApprove || canReject) {
+                                return (
+                                    <div className="mt-6 flex justify-end space-x-4">
+                                        {canReject && (
+                                            <button
+                                                onClick={() => handleApproval('Rejected')}
+                                                className="py-2 px-6 text-white bg-red-600 rounded-md font-semibold hover:bg-red-700"
+                                            >
+                                                Reject Invoice
+                                            </button>
+                                        )}
+                                        {canApprove && (
+                                            <button
+                                                onClick={() => handleApproval('Approved')}
+                                                disabled={!selectedSignature || sourcingBlocksApproval}
+                                                className={`py-2 px-6 text-white rounded-md font-semibold ${selectedSignature && !sourcingBlocksApproval
+                                                    ? 'bg-green-600 hover:bg-green-700'
+                                                    : 'bg-gray-400 cursor-not-allowed'
+                                                    }`}
+                                                title={
+                                                    sourcingBlocksApproval
+                                                        ? 'Procurement is still sourcing this quote — approval unlocks once the RFQ is awarded.'
+                                                        : selectedSignature
+                                                            ? 'Approve with selected signature'
+                                                            : 'Please select a signature first'
+                                                }
+                                            >
+                                                {sourcingBlocksApproval
+                                                    ? 'Awaiting Sourcing'
+                                                    : selectedSignature
+                                                        ? 'Save & Approve'
+                                                        : 'Select Signature First'}
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            }
+
+                            // 5. Approved (or any other matrix entry whose
+                            //    only permitted nexts are "send to customer"
+                            //    or "cancel") — no buttons here. The Send
+                            //    action lives on the Invoices workspace.
+                            return (
+                                <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-md flex items-center gap-3">
+                                    <Icon id="check-circle" className="text-blue-600 flex-shrink-0" />
+                                    <div className="flex-1">
+                                        <div className="font-semibold text-blue-900">Invoice is {status}</div>
+                                        <div className="text-sm text-blue-800 mt-0.5">
+                                            {status === INVOICE_STATUS.APPROVED
+                                                ? 'This invoice is approved and ready to be sent to the customer from the Invoices workspace.'
+                                                : 'No further decisions are required from this screen.'}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
 

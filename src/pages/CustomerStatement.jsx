@@ -14,6 +14,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import api from '../api';
 import Icon from '../components/common/Icon';
 import PageHeader from '../components/common/PageHeader';
@@ -22,6 +24,22 @@ import { SortableHeader, useSortable } from '../components/v2';
 import { usePrompt } from '../components/v2/PromptDialog';
 import { useApp } from '../context/AppContext';
 import { can } from '../utils/permissions';
+import ExportFormatModal from '../components/modals/ExportFormatModal';
+
+// Trigger a browser download from a Blob/ArrayBuffer. Mirrors the
+// helper inside ReportExportService — duplicated locally to keep this
+// page isolated (no cross-module coupling) per the "isolate this fix"
+// brief.
+function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
 
 const fmtMoney = (currency, amount) =>
     `${currency || 'GHS'} ${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -36,6 +54,7 @@ const CustomerStatement = ({ navigateTo, pageContext, currentUser }) => {
     const [notification, setNotification] = useState(null);
     const [from, setFrom]           = useState(pageContext?.from || '');
     const [to, setTo]               = useState(pageContext?.to   || '');
+    const [exportOpen, setExportOpen] = useState(false);  // format-chooser modal
 
     const { appUser } = useApp();
     const { askText } = usePrompt();
@@ -113,8 +132,12 @@ const CustomerStatement = ({ navigateTo, pageContext, currentUser }) => {
         }
     };
 
-    const handleDownloadPDF = () => {
-        if (!statement) return;
+    // ── Statement PDF builder ──────────────────────────────────────────
+    // Pure-build (no save side-effect) so the same instance can be
+    // either streamed to disk directly OR packaged into a ZIP alongside
+    // the XLSX. Visual layout is BYTE-IDENTICAL to the pre-export-modal
+    // PDF — we only lifted the `pdf.save(...)` out into `handleExport`.
+    const buildStatementPDF = () => {
         const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const pageWidth = pdf.internal.pageSize.getWidth();
 
@@ -198,8 +221,181 @@ const CustomerStatement = ({ navigateTo, pageContext, currentUser }) => {
             });
         }
 
-        const dateStr = new Date().toISOString().split('T')[0];
-        pdf.save(`statement-${statement.customer.id}-${dateStr}.pdf`);
+        return pdf;
+    };
+
+    // ── Statement XLSX builder ─────────────────────────────────────────
+    // Mirrors the PDF layout in spreadsheet form:
+    //   Sheet 1 "Statement" — customer header rows, ledger table with
+    //     Opening + entries + Closing rows, then an Aging summary block.
+    //   Sheet 2 "Info"      — filters applied + generation timestamp
+    //                         (audit-trail parity with the Report exports).
+    //
+    // Numbers are written as native Excel numbers (not pre-formatted
+    // strings) so users can re-sort, sum, and pivot in Excel. Dates use
+    // ISO yyyy-mm-dd display format.
+    const buildStatementXLSX = async () => {
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'MIDSA';
+        wb.created = new Date();
+
+        const ws = wb.addWorksheet('Statement');
+
+        // ── Branded header block ────────────────────────────────────
+        ws.mergeCells('A1:F1');
+        ws.getCell('A1').value = 'Statement of Account';
+        ws.getCell('A1').font  = { bold: true, size: 16 };
+
+        ws.getCell('A2').value = statement.customer.name || '';
+        ws.getCell('A2').font  = { bold: true };
+
+        let r = 3;
+        if (statement.customer.tin) {
+            ws.getCell(`A${r}`).value = `TIN: ${statement.customer.tin}`;
+            r++;
+        }
+        if (statement.customer.address) {
+            ws.getCell(`A${r}`).value = statement.customer.address;
+            r++;
+        }
+        if (statement.period.from || statement.period.to) {
+            ws.getCell(`A${r}`).value = `Period: ${statement.period.from || '—'} to ${statement.period.to || '—'}`;
+            r++;
+        }
+        r++; // blank spacer row
+
+        // ── Ledger header (styled like the PDF — blue band) ─────────
+        const headerRowIdx = r;
+        const headerRow = ws.getRow(headerRowIdx);
+        headerRow.values = ['Date', 'Reference', 'Description', 'Debit', 'Credit', 'Balance'];
+        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+        headerRow.alignment = { vertical: 'middle' };
+        r++;
+
+        // ── Opening balance row ─────────────────────────────────────
+        const openingRow = ws.getRow(r);
+        openingRow.values = ['', '', 'Opening balance', '', '', Number(statement.openingBalance || 0)];
+        openingRow.font = { italic: true };
+        openingRow.getCell(6).numFmt = '#,##0.00';
+        r++;
+
+        // ── Entry rows ──────────────────────────────────────────────
+        for (const e of (statement.entries || [])) {
+            const row = ws.getRow(r);
+            row.values = [
+                e.date ? new Date(e.date) : null,
+                e.reference || '',
+                e.description || '',
+                e.debit  != null && e.debit  !== '' ? Number(e.debit)  : null,
+                e.credit != null && e.credit !== '' ? Number(e.credit) : null,
+                Number(e.runningBalance || 0)
+            ];
+            row.getCell(1).numFmt = 'yyyy-mm-dd';
+            row.getCell(4).numFmt = '#,##0.00';
+            row.getCell(5).numFmt = '#,##0.00';
+            row.getCell(6).numFmt = '#,##0.00';
+            // Mirror the green credit color from the on-screen ledger
+            if (row.getCell(5).value != null) {
+                row.getCell(5).font = { color: { argb: 'FF047857' } };
+            }
+            r++;
+        }
+
+        // ── Closing balance row ─────────────────────────────────────
+        const closingRow = ws.getRow(r);
+        closingRow.values = ['', '', 'Closing balance', '', '', Number(statement.closingBalance || 0)];
+        closingRow.font = { bold: true, color: { argb: 'FF1E3A8A' } };
+        closingRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
+        closingRow.getCell(6).numFmt = '#,##0.00';
+        r++;
+
+        // Column widths + frozen header for usability
+        ws.columns = [
+            { width: 12 },  // Date
+            { width: 18 },  // Reference
+            { width: 42 },  // Description
+            { width: 14 },  // Debit
+            { width: 14 },  // Credit
+            { width: 16 }   // Balance
+        ];
+        ws.views = [{ state: 'frozen', ySplit: headerRowIdx }];
+
+        // ── Aging summary block ─────────────────────────────────────
+        r += 2; // spacer
+        ws.getCell(`A${r}`).value = 'Aging summary';
+        ws.getCell(`A${r}`).font  = { bold: true, size: 12 };
+        r++;
+
+        const agingHeader = ws.getRow(r);
+        agingHeader.values = ['0-30', '31-60', '61-90', '90+', 'Total Outstanding'];
+        agingHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        agingHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+        agingHeader.alignment = { horizontal: 'right' };
+        r++;
+
+        const agingRow = ws.getRow(r);
+        agingRow.values = [
+            Number(statement.aging?.['0-30']  || 0),
+            Number(statement.aging?.['31-60'] || 0),
+            Number(statement.aging?.['61-90'] || 0),
+            Number(statement.aging?.['90+']   || 0),
+            Number(statement.closingBalance   || 0)
+        ];
+        for (let c = 1; c <= 5; c++) {
+            agingRow.getCell(c).numFmt = '#,##0.00';
+            agingRow.getCell(c).alignment = { horizontal: 'right' };
+        }
+
+        // ── Info sheet — audit-trail parity ─────────────────────────
+        const info = wb.addWorksheet('Info');
+        info.getCell('A1').value = 'Customer Statement Export';
+        info.getCell('A1').font  = { bold: true, size: 14 };
+        info.getCell('A3').value = 'Customer:';      info.getCell('B3').value = statement.customer.name || '';
+        info.getCell('A4').value = 'Customer ID:';   info.getCell('B4').value = statement.customer.id   || '';
+        if (statement.customer.tin) {
+            info.getCell('A5').value = 'TIN:';       info.getCell('B5').value = statement.customer.tin;
+        }
+        info.getCell('A6').value = 'Period from:';   info.getCell('B6').value = statement.period.from || '—';
+        info.getCell('A7').value = 'Period to:';     info.getCell('B7').value = statement.period.to   || '—';
+        info.getCell('A8').value = 'Generated at:';  info.getCell('B8').value = new Date();
+        info.getCell('B8').numFmt = 'yyyy-mm-dd hh:mm:ss';
+        info.columns = [{ width: 18 }, { width: 36 }];
+
+        return wb;
+    };
+
+    // ── Export dispatcher (called by ExportFormatModal) ────────────────
+    // Branches on the chosen format. PDF preserves the existing layout
+    // exactly. XLSX uses the workbook above. ZIP packages both into a
+    // single download — useful for finance hand-offs.
+    const handleExport = async (format, { filename }) => {
+        if (!statement) throw new Error('Statement not loaded yet.');
+        const safe = String(filename || `statement-${statement.customer.id}`)
+            .replace(/[^a-z0-9_.-]/gi, '_');
+
+        if (format === 'pdf') {
+            const pdf = buildStatementPDF();
+            pdf.save(`${safe}.pdf`);
+        } else if (format === 'xlsx') {
+            const wb = await buildStatementXLSX();
+            const buffer = await wb.xlsx.writeBuffer();
+            triggerDownload(
+                new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+                `${safe}.xlsx`
+            );
+        } else if (format === 'zip') {
+            const pdf = buildStatementPDF();
+            const pdfBlob = pdf.output('blob');
+            const wb = await buildStatementXLSX();
+            const xlsxBuffer = await wb.xlsx.writeBuffer();
+            const zip = new JSZip();
+            zip.file(`${safe}.pdf`,  pdfBlob);
+            zip.file(`${safe}.xlsx`, xlsxBuffer);
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            triggerDownload(zipBlob, `${safe}.zip`);
+        }
+        setExportOpen(false);
     };
 
     if (!customerId) {
@@ -219,11 +415,11 @@ const CustomerStatement = ({ navigateTo, pageContext, currentUser }) => {
                         <Button
                             variant="primary"
                             size="sm"
-                            onClick={handleDownloadPDF}
+                            onClick={() => setExportOpen(true)}
                             disabled={!statement || loading}
                             leftIcon={<Icon id="download" />}
                         >
-                            Download PDF
+                            Export
                         </Button>
                         <Button
                             variant="ghost"
@@ -315,6 +511,20 @@ const CustomerStatement = ({ navigateTo, pageContext, currentUser }) => {
                     </>
                 ) : null}
             </div>
+
+            {/* Format-chooser modal — replaces the old direct-PDF button.
+                Reuses the same ExportFormatModal that every Module 5
+                report page uses, so the UX is consistent across the app. */}
+            <ExportFormatModal
+                open={exportOpen}
+                onClose={() => setExportOpen(false)}
+                defaultFilename={
+                    statement
+                        ? `statement-${statement.customer.id}-${new Date().toISOString().split('T')[0]}`
+                        : 'statement'
+                }
+                onExport={handleExport}
+            />
         </>
     );
 };

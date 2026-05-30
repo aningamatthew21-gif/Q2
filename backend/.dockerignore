@@ -1,0 +1,61 @@
+# SP4-3 — backend .dockerignore
+#
+# Anything listed here is NOT sent to the Docker daemon during build.
+# Two reasons:
+#   1. Image size — keeps the final layer small
+#   2. Security — prevents secrets / host-only files from leaking into
+#      the image, then into anyone who pulls it
+#
+# ISO 27001 A.8.32 (Change management — only ship what's intended)
+
+# Dependencies — get re-installed in-image via npm ci
+node_modules
+npm-debug.log*
+
+# Local environment — secrets MUST be injected at runtime via
+# `docker run --env-file` or an orchestrator's secret store, NEVER baked
+# into the image
+.env
+.env.*
+*.env
+
+# Version control — leaks commit history into the image otherwise
+.git
+.gitignore
+.gitattributes
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Tests, docs, examples — not needed at runtime
+__tests__
+*.test.js
+docs
+README.md
+*.md
+
+# Local logs and persisted dev artefacts
+*.log
+logs
+backend-bg.log
+backend-bg-err.log
+dumped-*.pdf
+
+# Database dump files (DR runbook output) — never ship these
+*.dmp
+*.dpdmp
+*.dpdmp.tar.gz
+backups
+
+# Reports cache directory (regenerated at runtime)
+reports
+
+# Docker artefacts
+Dockerfile
+.dockerignore
+docker-compose*.yml

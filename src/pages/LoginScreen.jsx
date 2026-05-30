@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, KeyRound, ArrowRight, ShieldCheck, Sparkles, Loader2, Wrench } from 'lucide-react';
 import companyLogo from '../assets/company-logo.png';
 import Button from '../components/v2/Button';
+import Label from '../components/v2/Label';
 import { dialogVariants, EASE_OUT } from '../components/v2/motion';
 
 /**
@@ -195,6 +196,7 @@ const LoginScreen = ({ onLogin, onOTPLogin, companyName = 'MIDSA', onDiagnostic 
                     label="Work email"
                     icon={<Mail />}
                     type="email"
+                    required
                     autoFocus
                     autoComplete="email"
                     placeholder="you@company.com"
@@ -234,6 +236,7 @@ const LoginScreen = ({ onLogin, onOTPLogin, companyName = 'MIDSA', onDiagnostic 
                     label="One-time code"
                     icon={<KeyRound />}
                     inputMode="numeric"
+                    required
                     autoComplete="one-time-code"
                     placeholder="6-digit code"
                     value={otpCode}
@@ -298,10 +301,10 @@ const LoginScreen = ({ onLogin, onOTPLogin, companyName = 'MIDSA', onDiagnostic 
 
 /* ── Form pieces ──────────────────────────────────────────── */
 
-function FormField({ label, icon, monospace, ...inputProps }) {
+function FormField({ label, icon, monospace, required = false, ...inputProps }) {
   return (
     <div>
-      <label className="block text-[12px] font-semibold text-n-700 mb-1.5">{label}</label>
+      <Label className="block text-[12px] font-semibold text-n-700 mb-1.5" required={required}>{label}</Label>
       <div className="relative">
         {icon && (
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-n-400 pointer-events-none">

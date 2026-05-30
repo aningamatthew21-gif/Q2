@@ -52,6 +52,7 @@ const CustomerPortal = ({ navigateTo, customerId }) => {
   const [previewPayload, setPreviewPayload] = useState(null);
   const [isEditingCustomer, setIsEditingCustomer] = useState(false);
   const [logPaymentInvoice, setLogPaymentInvoice] = useState(null);
+  const [loadError, setLoadError] = useState(null);  // EH: surface portal fetch failures to the user
   const { data: invoices, loading: invoicesLoading } = useRealtimeInvoices(null, customerId);
   const { appUser } = useApp();
   const canLogPayment = can(appUser, 'payment.log');
@@ -62,8 +63,25 @@ const CustomerPortal = ({ navigateTo, customerId }) => {
     (async () => {
       try {
         const response = await api.get(`/customers/${customerId}`);
-        if (!cancelled && response.success) setCustomer(response.data);
-      } catch (error) { console.error('Error fetching customer:', error); }
+        if (!cancelled && response.success) {
+          setCustomer(response.data);
+          setLoadError(null);
+        }
+      } catch (error) {
+        // EH (ISO 25010 User Error Protection): the portal is the
+        // customer's primary touchpoint — silent failure here means a
+        // blank page with no recourse. Surface the specific reason so
+        // the customer can act (refresh, contact support with the
+        // requestId, etc.).
+        if (cancelled) return;
+        console.error('Error fetching customer:', error);
+        const env = error?.response?.data?.error;
+        setLoadError({
+          message:   env?.message || error?.message || 'We couldn\'t load your account details.',
+          requestId: env?.requestId || null,
+          status:    error?.response?.status || 0
+        });
+      }
     })();
     return () => { cancelled = true; };
   }, [customerId]);
@@ -141,6 +159,31 @@ const CustomerPortal = ({ navigateTo, customerId }) => {
   return (
     <div className="min-h-screen bg-n-50 text-n-700 font-sans">
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+
+        {/* EH: portal-fetch failure banner (WCAG role=alert, dismissible). */}
+        {loadError && (
+          <div
+            role="alert"
+            className="mb-4 p-3 rounded border border-red-200 bg-red-50 text-sm text-red-800 flex items-start gap-2"
+          >
+            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <div className="font-medium">We couldn't load your account details.</div>
+              <div className="text-xs mt-0.5 text-red-700">{loadError.message}</div>
+              {loadError.requestId && (
+                <div className="text-[11px] mt-1 font-mono text-red-600 opacity-75">
+                  Reference: <span className="select-all">{loadError.requestId}</span>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="text-xs underline text-red-700 hover:text-red-900 flex-shrink-0"
+            >
+              Reload
+            </button>
+          </div>
+        )}
 
         {/* BACK link (only when used inside the app) */}
         {navigateTo && (

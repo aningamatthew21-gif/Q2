@@ -23,6 +23,8 @@ const { execute } = require('../../db');
 const { catchAsync } = require('../../middleware/errorHandler');
 const { authMiddleware, requirePermission } = require('../../middleware/authMiddleware');
 const { envelope, parseDateRange, agingBucket, AGING_BUCKET_ORDER, n, graBoxFor, safeJsonArray, isoDay } = require('./_shared');
+// SP3-M4 — centralised status catalogue (shared between backend + frontend)
+const { SQL_LIST } = require('../../../shared/statuses');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -247,7 +249,7 @@ router.get('/dso', catchAsync(async (req, res) => {
   const invSql = `
     SELECT INVOICE_ID, INVOICE_DATE, SUBTOTAL, BALANCE_DUE, STATUS
     FROM QA_INVOICES
-    WHERE STATUS IN ('Customer Accepted','Paid','Partially Paid')
+    WHERE STATUS IN (${SQL_LIST.INVOICE_RECOGNISED_REVENUE})
       AND INVOICE_DATE <= :toEnd`;
   const invRes = await execute(invSql, { toEnd: toStr });
   const invoices = invRes.rows || [];
@@ -525,7 +527,7 @@ router.get('/sales-register', catchAsync(async (req, res) => {
 
   const conditions = [
     // Revenue recognition: customer-accepted invoices and beyond
-    "i.STATUS IN ('Customer Accepted','Paid','Partially Paid')",
+    `i.STATUS IN (${SQL_LIST.INVOICE_RECOGNISED_REVENUE})`,
     "i.INVOICE_DATE >= :fromd",
     "i.INVOICE_DATE <= :tod"
   ];
@@ -1048,7 +1050,7 @@ router.get('/customer-profitability', catchAsync(async (req, res) => {
     JOIN QA_INVOICE_LINE_ITEMS li ON li.INVOICE_ID = i.INVOICE_ID
     LEFT JOIN QA_CUSTOMERS c ON c.CUSTOMER_ID = i.CUSTOMER_ID
     LEFT JOIN QA_INVENTORY inv ON inv.SKU = li.SKU
-    WHERE i.STATUS IN ('Customer Accepted','Paid','Partially Paid')
+    WHERE i.STATUS IN (${SQL_LIST.INVOICE_RECOGNISED_REVENUE})
       AND i.INVOICE_DATE LIKE :ypfx`;
 
   const r = await execute(sql, { ypfx: `${year}%` });

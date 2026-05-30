@@ -9,6 +9,7 @@ import PreviewModal from '../components/PreviewModal';
 import QuantityModal from '../components/modals/QuantityModal';
 import ConfirmationModal from '../components/modals/ConfirmationModal';
 import GlassModal from '../components/common/GlassModal';
+import Label from '../components/v2/Label';
 import { logActivity } from '../utils/logger';
 import EnhancedAIService from '../services/EnhancedAIService';
 import NLPService from '../services/NLPService';
@@ -579,7 +580,7 @@ const QuotingModule = ({ navigateTo, userId }) => {
                         <div className="px-4 pt-3">
                             {/* CUSTOMER INPUT — Fluent style */}
                             <div className="relative" ref={customerDropdownRef}>
-                                <label className="block text-[12px] font-medium text-n-700 mb-1">Customer <span className="text-err">*</span></label>
+                                <Label className="block text-[12px] font-medium text-n-700 mb-1" required>Customer</Label>
                                 <input
                                     type="text"
                                     value={customerSearch}
@@ -732,7 +733,7 @@ const QuotingModule = ({ navigateTo, userId }) => {
             >
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-[12px] font-medium text-n-700 mb-1">Item name <span className="text-err">*</span></label>
+                        <Label className="block text-[12px] font-medium text-n-700 mb-1" required>Item name</Label>
                         <input
                             type="text"
                             value={customItem.name}
@@ -752,7 +753,7 @@ const QuotingModule = ({ navigateTo, userId }) => {
                         />
                     </div>
                     <div>
-                        <label className="block text-[12px] font-medium text-n-700 mb-1">Quantity</label>
+                        <Label className="block text-[12px] font-medium text-n-700 mb-1" required>Quantity</Label>
                         <input
                             type="number"
                             value={customItem.quantity}

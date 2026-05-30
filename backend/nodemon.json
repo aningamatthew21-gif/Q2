@@ -1,0 +1,15 @@
+{
+  "//": "Watch the backend AND the sibling shared/ directory so edits to shared/permissions.js or shared/errors.js trigger an auto-restart. Without this, nodemon only watches backend/ and shared/ changes go unnoticed until the next manual `rs`.",
+  "watch": [
+    ".",
+    "../shared"
+  ],
+  "ext": "js,mjs,cjs,json",
+  "ignore": [
+    "node_modules",
+    "logs",
+    "*.test.js",
+    "__tests__"
+  ],
+  "delay": "300"
+}

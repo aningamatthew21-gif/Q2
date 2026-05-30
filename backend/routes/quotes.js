@@ -5,7 +5,6 @@ const crypto = require('crypto');
 const { execute, transaction } = require('../db');
 const { catchAsync } = require('../middleware/errorHandler');
 const { authMiddleware, requirePermission } = require('../middleware/authMiddleware');
-const { can } = require('../../shared/permissions');
 const { emitToAll } = require('../utils/socketEmitter');
 
 const router = express.Router();
@@ -15,17 +14,20 @@ router.use(authMiddleware);
  * GET /api/quotes
  */
 router.get('/', catchAsync(async (req, res) => {
-  // SCOPE FILTER — users without `invoice.read.all` (which a sales_officer
-  // doesn't have) only see quotes they created. Same shape as the
-  // /api/invoices GET scope filter so behaviour is consistent across the
-  // sales surface.
-  let sql = 'SELECT * FROM QA_QUOTES';
+  // ── READ SCOPE — ERP-style broad-read (2026-05-26) ─────────────────
+  // ISO/IEC 27001:2022 A.5.10 / A.5.12 / A.5.15 / A.8.3 — any
+  // authenticated internal user reaching this route receives the full
+  // list of quotes. Replaces the prior CREATED_BY=me filter that
+  // silently hid cross-role workflow (e.g. a quote authored by a
+  // finance_head was invisible to the sales_officer expected to send
+  // it). Mirrors the same change in routes/invoices.js GET / and
+  // matches how routes/purchaseRequisitions.js and routes/rfqs.js
+  // have always behaved.
+  //
+  // Customers never reach this route. WRITE / approval gates remain.
+  // Compensating control: auditMiddleware logs every mutation.
+  const sql = 'SELECT * FROM QA_QUOTES ORDER BY CREATED_AT DESC FETCH FIRST 500 ROWS ONLY';
   const binds = {};
-  if (!can(req.user.role, 'invoice.read.all')) {
-    sql += ' WHERE LOWER(CREATED_BY) = LOWER(:me)';
-    binds.me = req.user.email;
-  }
-  sql += ' ORDER BY CREATED_AT DESC FETCH FIRST 500 ROWS ONLY';
   const result = await execute(sql, binds);
   
   const quotes = [];

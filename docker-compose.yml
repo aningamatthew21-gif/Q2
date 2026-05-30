@@ -1,0 +1,156 @@
+# ─────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — MIDSA Quote App on-prem / single-host deployment
+#
+# Standards anchor:
+#   - ISO/IEC 27001:2022 A.5.30  (ICT readiness for business continuity)
+#   - ISO/IEC 27001:2022 A.8.16  (Monitoring activities)
+#   - ISO/IEC 27001:2022 A.8.32  (Change management)
+#   - CIS Docker Benchmark v1.6  (4.5 restart policy, 5.10 mem limits,
+#                                 5.11 cpu limits, 5.25 no new privileges)
+#
+# Assumes Oracle XE runs OUTSIDE this compose stack (on the host or a
+# dedicated DB box). Pass DB connection details via .env at the repo root.
+#
+# Bring up:
+#   docker compose --env-file .env up -d --build
+#
+# Inspect:
+#   docker compose ps
+#   docker compose logs -f backend
+#   docker compose logs -f frontend
+#
+# Bring down (keep volumes — preserves backups):
+#   docker compose down
+#
+# Bring down + nuke volumes (RESETS local backup mounts):
+#   docker compose down -v
+# ─────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── BACKEND — Express + Oracle ────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: midsa/backend:latest
+    container_name: midsa-backend
+    restart: unless-stopped      # CIS 4.5
+
+    # Inject ALL secrets via the .env file at the repo root.
+    # NEVER hardcode them here — `docker compose config` would leak them.
+    env_file:
+      - .env
+
+    environment:
+      # Override env vars when running inside Docker. Oracle is on the host
+      # (Windows Oracle XE), so use host.docker.internal to reach it from
+      # inside the container.
+      - DB_CONNECTION_STRING=${DB_CONNECTION_STRING:-host.docker.internal:1521/XEPDB1}
+      - NODE_ENV=production
+      - PORT=3001
+      - LOG_LEVEL=info
+      # Allow the frontend container to talk to us via container DNS.
+      - FRONTEND_URL=http://frontend
+
+    # CIS 5.10 + 5.11 — soft caps to prevent a runaway from eating
+    # the host. Tune per real production load.
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus:   "1.0"
+
+    # CIS 5.25 — drop ALL Linux capabilities except those needed.
+    # Node + Oracle thin driver need: nothing. We start with none.
+    cap_drop:
+      - ALL
+
+    # CIS 5.4 — prevent privilege escalation inside the container.
+    security_opt:
+      - no-new-privileges:true
+
+    # Health check is defined in the Dockerfile (HEALTHCHECK directive)
+    # so it's enforced regardless of orchestrator.
+
+    # Persistent logs + reports directory mounted from the host so we
+    # can rotate / archive them externally.
+    volumes:
+      - midsa-backend-reports:/app/reports
+      - midsa-backend-logs:/var/log/midsa
+
+    networks:
+      - midsa-net
+
+    # Resolve host.docker.internal to the host's gateway on Linux too
+    # (default on Docker Desktop for Mac/Windows).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # Log driver — JSON file with rotation so we don't fill the disk.
+    # Production deployments should pipe these into a SIEM / log
+    # collector (Fluent Bit, Vector, etc.).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── FRONTEND — nginx serving Vite build + reverse-proxying /api ──────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: midsa/frontend:latest
+    container_name: midsa-frontend
+    restart: unless-stopped
+
+    # Frontend depends on backend's health, not just its existence — wait
+    # until the backend's HEALTHCHECK reports healthy before nginx starts
+    # proxying traffic to it.
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    ports:
+      # Expose on port 8080 of the host to avoid clashing with anything
+      # already on :80. Change if you want to bind :80 directly.
+      - "8080:80"
+
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus:   "0.5"
+
+    cap_drop:
+      - ALL
+    # nginx needs CAP_NET_BIND_SERVICE to bind low ports as non-root,
+    # but we expose on port 80 inside the container and the official
+    # nginx:alpine image handles this via setcap on the binary.
+
+    security_opt:
+      - no-new-privileges:true
+
+    networks:
+      - midsa-net
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ── Networks ────────────────────────────────────────────────────────────
+# Single user-defined bridge network — gives containers DNS-based service
+# discovery (backend resolves "midsa-backend", frontend resolves "frontend")
+# and isolates them from the default bridge.
+networks:
+  midsa-net:
+    driver: bridge
+
+# ── Volumes ─────────────────────────────────────────────────────────────
+volumes:
+  midsa-backend-reports:    # CSV / XLSX export staging
+  midsa-backend-logs:       # app-emitted log files (separate from
+                            # the JSON-driver-captured stdout/stderr)

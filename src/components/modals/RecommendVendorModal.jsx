@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import Icon from '../common/Icon';
 import GlassModal from '../common/GlassModal';
 import Button from '../common/Button';
+import Label from '../v2/Label';
 
 /**
  * RecommendVendorModal — Phase 3
@@ -164,9 +165,9 @@ const RecommendVendorModal = ({ rfq, vendor, recommendation, onSubmit, onCancel 
 
                 {/* Reason */}
                 <div>
-                    <label className="block text-sm font-medium text-ink mb-1">
-                        Recommendation Reason <span className="text-danger">*</span>
-                    </label>
+                    <Label className="block text-sm font-medium text-ink mb-1" required>
+                        Recommendation Reason
+                    </Label>
                     <textarea
                         value={reason}
                         onChange={(e) => setReason(e.target.value)}

@@ -39,9 +39,14 @@ router.use(authMiddleware);
 // ─────────────────────────────────────────────────────────────────────────
 
 async function nextReceiptNumber(conn) {
-  const r = await conn.execute('SELECT QA_GR_SEQ.NEXTVAL AS N FROM DUAL', {}, { outFormat: 4002 });
-  const n = r.rows[0].N;
-  return `GR-${new Date().getFullYear()}-${String(n).padStart(4, '0')}`;
+  // GR_NUMBER from standardized numbering policy (QA_NUMBER_SEQUENCES →
+  // DOC_TYPE='GR'). Legacy QA_GR_SEQ no longer used. The conn param is
+  // kept to preserve the existing callers' transactional context — but
+  // generateNumber opens its own transaction internally for its
+  // SELECT...FOR UPDATE lock, which is safe because the row it locks
+  // (QA_NUMBER_SEQUENCES) is a different table from the receipt row.
+  const { generateNumber } = require('../utils/numberGenerator');
+  return await generateNumber('GR');
 }
 
 const rowToReceipt = (row) => ({

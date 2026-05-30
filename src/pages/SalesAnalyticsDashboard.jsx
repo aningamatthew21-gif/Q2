@@ -186,7 +186,23 @@ const SalesAnalyticsDashboard = ({ navigateTo, userId, userEmail, currentUser })
         animate="enter"
         className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4"
       >
-        <ChartCard title="Internal approval status" subtitle="Active quotes by stage" height={300}>
+        <ChartCard
+          title="Internal approval status"
+          subtitle="Active quotes by stage"
+          height={300}
+          // (Refresh intentionally omitted — useRealtimeInvoices keeps this
+          // chart live via socket; a manual button would mislead.)
+          // Drills into the Sales Pipeline report (Module 5 S1).
+          reportPage="reportSalesPipeline"
+          tableData={{
+            columns: [
+              { key: 'name',  label: 'Stage' },
+              { key: 'value', label: 'Quote count', type: 'number' }
+            ],
+            rows: internalFunnel || []
+          }}
+          exportFilename="internal-approval-status"
+        >
           {isLoading ? (
             <SkeletonChart />
           ) : (
@@ -214,7 +230,23 @@ const SalesAnalyticsDashboard = ({ navigateTo, userId, userEmail, currentUser })
           )}
         </ChartCard>
 
-        <ChartCard title="My top customers" subtitle="By realised revenue" height={300}>
+        <ChartCard
+          title="My top customers"
+          subtitle="By realised revenue"
+          height={300}
+          // (Refresh intentionally omitted — useRealtimeInvoices keeps this
+          // chart live via socket; a manual button would mislead.)
+          // Drills into the Module-5 Top Customers report (S7).
+          reportPage="reportTopCustomers"
+          tableData={{
+            columns: [
+              { key: 'name',  label: 'Customer' },
+              { key: 'total', label: 'Realised revenue (GHS)', type: 'currency' }
+            ],
+            rows: topCustomersData || []
+          }}
+          exportFilename="my-top-customers"
+        >
           {isLoading ? <SkeletonChart /> : (
             topCustomersData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">

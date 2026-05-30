@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import GlassModal from '../common/GlassModal';
 import Button from '../common/Button';
+import Label from '../v2/Label';
 
 const ITEM_TYPES = ['Hardware', 'Software', 'Service'];
 const CURRENCIES = ['USD', 'GHS', 'EUR', 'GBP'];
@@ -61,7 +62,7 @@ const ItemModal = ({ item, onSave, onClose }) => {
         >
             <div className="space-y-4">
                 <div>
-                    <label className={LABEL_CLASS}>Item Name</label>
+                    <Label className={LABEL_CLASS} required>Item Name</Label>
                     <input type="text" name="name" value={formData.name} onChange={handleChange} className={INPUT_CLASS} />
                 </div>
                 <div>
@@ -86,7 +87,7 @@ const ItemModal = ({ item, onSave, onClose }) => {
 
                 <div className="grid grid-cols-2 gap-4">
                     <div>
-                        <label className={LABEL_CLASS}>Price ({formData.currency || 'GHS'})</label>
+                        <Label className={LABEL_CLASS} required>Price ({formData.currency || 'GHS'})</Label>
                         <input
                             type="number"
                             name="price"

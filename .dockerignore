@@ -1,0 +1,51 @@
+# Frontend / repo-root .dockerignore — keeps the Vite build context small
+# and prevents host artefacts from leaking into the image.
+
+# Deps re-installed in-image
+node_modules
+npm-debug.log*
+
+# Backend lives in its own image — don't include it in frontend build
+backend
+docs
+
+# Secrets
+.env
+.env.*
+*.env
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp
+
+# Already-built artefacts (rebuilt in-image from source)
+dist
+build
+
+# Tests + plans + ad-hoc files
+__tests__
+*.test.js
+CLAUDE_PACKAGE
+*.md
+samples
+plans
+
+# Logs
+*.log
+backend-bg.log
+backend-bg-err.log
+dumped-*.pdf
+
+# Docker artefacts
+Dockerfile
+.dockerignore
+docker-compose*.yml
+nginx.conf

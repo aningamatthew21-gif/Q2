@@ -166,15 +166,45 @@ async function closePool() {
 }
 
 /**
- * Health check — returns true if a query succeeds
+ * Health check — returns true if a query succeeds.
+ *
+ * Internally bounded by `timeoutMs` (default 1000ms) so the /api/health
+ * endpoint never hangs the Docker HEALTHCHECK / load-balancer probe
+ * when the DB is wedged. A wedged DB on a probe should return false
+ * (mark unhealthy) within 1 second, not block for the default Oracle
+ * connect timeout (~60s).
  */
-async function ping() {
+async function ping(timeoutMs = 1000) {
   try {
-    await execute('SELECT 1 FROM DUAL');
-    return true;
+    const result = await Promise.race([
+      execute('SELECT 1 AS OK FROM DUAL'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('DB ping timeout')), timeoutMs))
+    ]);
+    return result && result.rows && result.rows.length > 0;
   } catch (_) {
     return false;
   }
+}
+
+/**
+ * Pool diagnostics — returns oracledb pool counters, or null if the
+ * pool isn't initialised yet. Used by the production /api/health
+ * endpoint so on-call can see at-a-glance whether the pool is healthy
+ * (low queue, no leaked connections).
+ */
+function poolStats() {
+  if (!pool) return null;
+  return {
+    connectionsOpen:    pool.connectionsOpen,
+    connectionsInUse:   pool.connectionsInUse,
+    poolMax:            pool.poolMax,
+    poolMin:            pool.poolMin,
+    // utilisation as percentage — high values for sustained periods
+    // indicate poolMax should be raised
+    utilisationPct:     pool.poolMax > 0
+      ? Math.round((pool.connectionsInUse / pool.poolMax) * 100)
+      : 0
+  };
 }
 
 /**
@@ -214,4 +244,4 @@ function safeSqlIdent(value, kind = 'ident') {
   return s;
 }
 
-module.exports = { initPool, execute, transaction, closePool, ping, lobToString, safeSqlIdent };
+module.exports = { initPool, execute, transaction, closePool, ping, poolStats, lobToString, safeSqlIdent };
